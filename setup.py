@@ -1,0 +1,30 @@
+from setuptools import setup, find_packages
+from pathlib import Path
+
+README = Path(__file__).with_name("README.md").read_text()
+
+setup(
+    name="DNF_torch",
+    version="0.1.0",
+    description="Dynamic Neural Fields",
+    long_description=README,
+    long_description_content_type="text/markdown",
+    author="Caterina Caccavella",
+    author_email="cacc@zhaw.ch",
+    python_requires=">=3.10",
+    packages=find_packages(exclude=["tests", "examples"]),
+    install_requires=[
+        "torch==2.6.0",
+        "torchvision==0.21.0",
+        "torchaudio==2.6.0",
+        "torchmetrics==1.7.4",
+        "numpy==1.26.4",
+        "matplotlib==3.10.1",
+        "pygame==2.6.1",
+        "pygame-ce==2.5.5",
+        "pygame_gui==0.6.14",
+    ],
+    extras_require={
+        "dev": ["pytest>=7.4", "pytest-cov", "ruff", "mypy", "build", "twine"],
+    },
+)
