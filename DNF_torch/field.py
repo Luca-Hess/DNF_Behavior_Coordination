@@ -1,8 +1,21 @@
 import torch
-from dnf_module.dnf_module.dnf_torch.interaction_kernels import InteractionKernel, InteractionKernelND
-from dnf_module.dnf_module.dnf_torch.vis_utils import plot_kernel
+from .interaction_kernels import InteractionKernelND
+from .vis_utils import plot_kernel
 import torch.nn as nn
 
+def dimensions_from_shape(shape):
+    """
+    Infer the number of spatial dimensions from the shape. If shape is an int, return 0 or 1 depending on int value.
+    If shape is a tuple, return its length.
+    """
+    if isinstance(shape, int):
+        if shape >= 1:
+            return shape
+        else:
+            return 0
+    elif isinstance(shape, tuple):
+        return len(shape)
+    
 
 class Field(nn.Module):
     """
@@ -16,7 +29,7 @@ class Field(nn.Module):
                  resting_level=-5.0,
                  noise_strength=0.01,
                  global_inhibition=0.0,
-                 kernel_size=5,
+                 kernel_size=5, # only simmetric kernels for now
                  in_channels=1,
                  out_channels=1,
                  conv_groups=1,
@@ -43,12 +56,17 @@ class Field(nn.Module):
             global_inhibition (float): Strength of global inhibition.
             kernel_params (dict): Parameters for interaction kernel.
         """
-        H, W = shape
-        assert isinstance(kernel_size, int) or (len(kernel_size) == 2)
-        if isinstance(kernel_size, int):
-            kH = kW = kernel_size
-        else:
-            kH, kW = kernel_size
+        self._dimensions = dimensions_from_shape(shape)
+        if self._dimensions == 2:
+            H, W = shape
+        elif self._dimensions == 3:
+            H, W, F = shape
+        elif self._dimensions == 4:
+            H, W, F, D = shape
+    
+        assert isinstance(kernel_size, int)
+        kernel_size = (kernel_size,)*self._dimensions
+        kH, kW = kernel_size
         padding = (kH // 2, kW // 2)
 
         self.HW = (H, W)
@@ -177,3 +195,15 @@ class Field(nn.Module):
         self.noise_tensor.resize_as_(self.activation)
         self.activation_history.clear()
         self.activity_history.clear()
+
+    @property
+    def dimensions(self):
+        return self._dimensions
+    
+    @property
+    def activation_function(self):
+        return self._activation_function
+    
+    @property
+    def interaction_kernel(self):
+        return self._interaction_kernel
