@@ -71,3 +71,7 @@ Thumbs.db
 .env
 .env.*
 .dnftorch_env.*
+
+
+# Saved files
+field_params/
