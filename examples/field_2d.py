@@ -1,8 +1,6 @@
 from DNF_torch.field import Field
-from DNF_torch.viz import animate_fields
 from DNF_torch.viz import run_tuner
 
-viz = False
 tune = True
 
 # Run simulation
@@ -18,10 +16,7 @@ field_2 = Field(resting_level=-0.0, noise_strength=0.01, global_inhibition=0.0,
                 kernel_type='stabilized', debug=False)
 fields = [field_1, field_2]
 
-if viz:
-    print("Starting visualization.")
-    animate_fields(fields)
-elif tune:
+if tune:
     print("Starting parameter tuner.")
     run_tuner(fields)
 else:

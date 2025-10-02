@@ -17,37 +17,6 @@ except Exception:
 
 
 # ----------------------------
-# Simple Matplotlib animation
-# ----------------------------
-def animate_fields(fields, steps=100, interval=100):
-    """
-    Quickly animate one or more Field activations using Matplotlib.
-    """
-    fig, axes = plt.subplots(1, len(fields), figsize=(5*len(fields), 4))
-    if len(fields) == 1:
-        axes = [axes]
-
-    ims = []
-    for ax, f in zip(axes, fields):
-        im = ax.imshow(
-            f.get_activation().squeeze().cpu().numpy(),
-            cmap='viridis', origin='lower', animated=True
-        )
-        ax.set_title("Field Step 0")
-        ims.append(im)
-
-    def update(step):
-        for f, im in zip(fields, ims):
-            f.update()
-            im.set_array(f.get_activation().squeeze().cpu().numpy())
-            im.axes.set_title(f"Field Step {step+1}")
-        return ims
-
-    animation.FuncAnimation(fig, update, frames=steps, interval=interval, blit=False)
-    plt.show()
-
-
-# ----------------------------
 # Pygame tuner GUI
 # ----------------------------
 class FieldTuner:
