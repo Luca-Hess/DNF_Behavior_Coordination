@@ -396,7 +396,7 @@ class FieldTuner:
 
             # step all fields
             for f in self.fields:
-                f.update()
+                f.forward()
 
             # update UI
             self.manager.update(time_delta)
