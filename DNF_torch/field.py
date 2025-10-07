@@ -1,6 +1,6 @@
 import torch
 from .interaction_kernels import InteractionKernelND
-from .vis_utils import plot_kernel
+#from .vis_utils import plot_kernel
 import torch.nn as nn
 
 def dimensions_from_shape(shape):

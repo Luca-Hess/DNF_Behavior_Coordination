@@ -1,7 +1,7 @@
 from DNF_torch.field import Field
 from DNF_torch.viz import run_tuner
 
-tune = True
+tune = False
 
 # Run simulation
 field_1 = Field(resting_level=-5.0, noise_strength=0.01, global_inhibition=0.0,
@@ -22,6 +22,6 @@ if tune:
 else:
     print("Running simulation without visualization.")
     for _step in range(100):
-        activation, active_vals = field_1.update()
-        activation, active_vals = field_2.update()
+        activation, active_vals = field_1.forward()
+        activation, active_vals = field_2.forward()
         print(f"Step {_step}: Activation mean {activation.mean().item():.4f}, Active mean {active_vals.mean().item():.4f}")
