@@ -1,0 +1,16 @@
+[project]
+name = "dnf-torch"
+version = "0.1.0"
+description = "Add your description here"
+requires-python = ">=3.11"
+dependencies = [
+    "matplotlib==3.10.1",
+    "numpy==1.26.4",
+    "pygame==2.6.1",
+    "pygame-ce==2.5.5",
+    "pygame-gui==0.6.5",
+    "torch==2.6.0",
+    "torchaudio==2.6.0",
+    "torchmetrics==1.7.4",
+    "torchvision==0.21.0",
+]
