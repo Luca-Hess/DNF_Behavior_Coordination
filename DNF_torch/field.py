@@ -1,6 +1,5 @@
 import torch
 from .interaction_kernels import InteractionKernelND
-#from .vis_utils import plot_kernel
 import torch.nn as nn
 
 def dimensions_from_shape(shape):
@@ -118,6 +117,7 @@ class Field(nn.Module):
         # firing rate g(u) initialized as sigmoid(beta * u)
         g0 = torch.sigmoid(self.beta * self.activation)
         self.register_buffer("g_u", g0.clone())
+        self.register_buffer("g_u_prev", g0.clone())
         self.register_buffer("noise_tensor", torch.empty_like(self.activation))
         # precompute constants
         dt = self.time_step
@@ -131,6 +131,35 @@ class Field(nn.Module):
         self.activation_history = []
         self.activity_history = []
 
+        # Persistent list of incoming connections
+        self.in_connections = []
+
+    def connection_to(self, target_field, weight=1.0):
+        target_field.connection_from(self, weight)
+
+    def connection_from(self, source_field, weight=1.0):
+        w_tensor = (weight if torch.is_tensor(weight)
+                    else torch.as_tensor(weight, dtype=self.g_u.dtype, device=self.g_u.device))
+        self.in_connections.append({
+            "source": source_field,
+            "weight": w_tensor,
+        })
+
+    def cache_prev(self):
+        """Call once per global step (before any forward) to snapshot firing for synchronous updates."""
+        self.g_u_prev.copy_(self.g_u)
+
+    def _aggregate_connection_input(self):
+        if not self.in_connections:
+            return None
+        total = None
+        for connection in self.in_connections:
+            src = connection["source"]
+            # Use cached previous firing if available
+            g_prev = src.g_u_prev if hasattr(src, "g_u_prev") else src.g_u
+            contrib = g_prev * connection["weight"]
+            total = contrib if total is None else (total + contrib)
+        return total
 
     def _global_inhibition_term(self):
         if self.global_inhibition == 0.0:
@@ -139,7 +168,14 @@ class Field(nn.Module):
         return self.global_inhibition * torch.sum(self.g_u) / n
 
     def forward(self, input_tensor=None):
-        # interaction
+        # aggregate inputs from connected fields
+        conn_input = self._aggregate_connection_input()
+        if conn_input is None:
+            total_input = input_tensor if input_tensor is not None else 0.0
+        else:
+            total_input = conn_input if input_tensor is None else (conn_input + input_tensor)
+
+        # lateral & self interaction
         if self._dimensions == 0:
             interaction_term = self.self_w * self.g_u
         elif self.interaction and self.kernel is not None:
@@ -160,7 +196,10 @@ class Field(nn.Module):
         noise = self.sqrt_dt_over_tau * torch.randn_like(self.activation)
 
         # Euler update
-        rate_change = (-self.activation + interaction_term + self.scale * input_term + self.resting_level)
+        rate_change = (-self.activation +
+                       interaction_term +
+                       self.scale * total_input +
+                       self.resting_level)
         self.activation = self.activation + self.dt_over_tau * rate_change + noise
         self.g_u = torch.sigmoid(self.beta * self.activation)
 
