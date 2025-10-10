@@ -191,8 +191,7 @@ class Field(nn.Module):
         else:
             interaction_term = -gi
 
-        # input & noise
-        input_term = input_tensor if input_tensor is not None else 0.0
+        # noise
         noise = self.sqrt_dt_over_tau * torch.randn_like(self.activation)
 
         # Euler update
