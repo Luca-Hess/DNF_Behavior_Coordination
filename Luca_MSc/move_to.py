@@ -32,14 +32,7 @@ class MoveToBehavior(ElementaryBehaviorSimple):
         distance_to_target = interactor.calculate_distance(target_location)
 
         # Calculate scalar inputs for control nodes:
-        # Intention: Activate when far from target
-        intention_gain = 50.0
-        intention_offset = -0.2  # small offset to avoid noise triggering when close
-        intention_input = intention_gain * (distance_to_target + intention_offset)
-        intention_input = max(0.0, min(6.0, float(intention_input)))  # Clamp to [0,6]
-
-        # Add external input (e.g., from precondition nodes)
-        intention_input += external_input
+        intention_input = external_input if not self.is_completed else 0.0
 
         # CoS: Activate when close enough to target
         cos_gain = 100.0

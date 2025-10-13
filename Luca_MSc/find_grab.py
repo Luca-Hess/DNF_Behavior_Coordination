@@ -50,12 +50,12 @@ class FindGrabBehavior:
             torch.zeros_like(self.close_precond.g_u)
         )
 
-
         # Connections
         self.find_behavior.CoS.connection_to(self.found_precond, 15.0)
 
-        self.found_precond.connection_to(self.move_to_behavior.intention, 6.0)
-        self.move_to_behavior.CoS.connection_to(self.close_precond, 15.0)
+        #self.found_precond.connection_to(self.move_to_behavior.intention, 6.0)
+        self.move_to_behavior.CoS.connection_to(self.close_precond, 10.0)
+
 
     def execute_step(self, interactors, target_name, external_input=5.0):
         """Execute the find portion of the behavior chain."""
@@ -69,37 +69,37 @@ class FindGrabBehavior:
 
         # Process the found precondition node (no external input)
         found_activation, found_activity = self.found_precond()
-        #close_activation, close_activity = self.close_precond()
+        close_activation, close_activity = self.close_precond()
 
-        # Execute move-to behavior with precondition input
-        # move_state = None
-        # if find_state['target_location'] is not None:
-        #     move_state = self.move_to_behavior.execute(
-        #         interactors.movement,
-        #         find_state['target_location']
-        #     )
-
+        # Execute move-to behavior with precondition input, only if found is active
+        move_state = None
+        if find_state['target_location'] is not None:
+            move_state = self.move_to_behavior.execute(
+                interactors.movement,
+                find_state['target_location']
+            )
         # Get current robot position from movement interactor
-        #robot_position = interactors.movement.get_position()
+        robot_position = interactors.movement.get_position()
 
         state = {
-            **find_state,
-            'found_precond_activity': float(found_activity.detach()),
-            'found_activation': float(found_activation.detach()),
-            'found_active': float(found_activity) > 0.7
-            #'robot_position': robot_position.tolist()
+            'find': find_state,
+            'move': move_state,
+            'preconditions': {
+                'found': {
+                    'activation': float(found_activation.detach()),
+                    'activity': float(found_activity.detach()),
+                    'active': float(found_activity) > 0.7
+                },
+                'close': {
+                    'activation': float(close_activation.detach()),
+                    'activity': float(close_activity.detach()),
+                    'active': float(close_activity) > 0.7
+                }
+            },
+            'robot':{
+                'position': robot_position.tolist()
+            },
         }
-
-        # if move_state is not None:
-        #     state.update({
-        #         'move_active': move_state['active'],
-        #         'move_completed': move_state['completed'],
-        #         'distance_to_target': move_state['distance'],
-        #         'motor_commands': move_state['motor_commands'],
-        #         'close_precond_activity': float(close_activity.detach()),
-        #         'close_precond_activation': float(close_activation.detach()),
-        #         'close_precond_active': float(close_activity) > 0.7
-        #     })
 
         return state
 
@@ -147,30 +147,43 @@ if __name__ == "__main__":
         state = find_grab.execute_step(interactors, "cup", external_input)
 
         # Log activities for plotting
-        log["intention_activation"].append(state['intention_activation'])
-        log["intention_activity"].append(state['intention_activity'])
-        log["cos_activation"].append(state['cos_activation'])
-        log["cos_activity"].append(state['cos_activity'])
-        log["found_precond_activation"].append(state['found_activation'])
-        log["found_precond_activity"].append(state['found_precond_activity'])
-        # log["move_intention_activation"].append(state.get('move_intention_activation'))
-        # log["move_intention_activity"].append(state.get('move_intention_activity'))
-        # log["move_cos_activation"].append(state.get('move_cos_activation'))
-        # log["move_cos_activity"].append(state.get('move_cos_activity'))
-        # log["close_precond_activation"].append(state.get('close_precond_activation'))
-        # log["close_precond_activity"].append(state.get('close_precond_activity', 0.0))
+        log["intention_activation"].append(state['find']['intention_activation'])
+        log["intention_activity"].append(state['find']['intention_activity'])
+        log["cos_activation"].append(state['find']['cos_activation'])
+        log["cos_activity"].append(state['find']['cos_activity'])
+        log["found_precond_activation"].append(state['preconditions']['found']['activation'])
+        log["found_precond_activity"].append(state['preconditions']['found']['activity'])
+        if state['move'] is not None:
+            log["move_intention_activation"].append(state['move']['intention_activation'])
+            log["move_intention_activity"].append(state['move']['intention_activity'])
+            log["move_cos_activation"].append(state['move']['cos_activation'])
+            log["move_cos_activity"].append(state['move']['cos_activity'])
+            log["close_precond_activation"].append(state['preconditions']['close']['activation'])
+            log["close_precond_activity"].append(state['preconditions']['close']['activity'])
+        else:
+            log["move_intention_activation"].append(-3.0)
+            log["move_intention_activity"].append(0.0)
+            log["move_cos_activation"].append(-3.0)
+            log["move_cos_activity"].append(0.0)
+            log["close_precond_activation"].append(-3.0)
+            log["close_precond_activity"].append(0.0)
 
         # Print status
-        print(f"Step {step}: Active={state['active']}, Completed={state['completed']}")
-        print(f"  Found={state['target_found']}, "
-              f"Location={state['target_location']}")
-        print(f"  Intention={state['intention_activity']:.2f}, "
-              f"CoS={state['cos_activity']:.2f}, "
-              f"Found Precond={state['found_precond_activity']:.2f}")
+        print(f"Step {step}: Active={state['find']['active']}, Completed={state['find']['completed']}")
+        print(f"Active Movement={state['move']['active'] if state['move'] else False}, Completed Movement={state['move']['completed'] if state['move'] else False}")
+        # print(f"  Found={state['target_found']}, "
+        #       f"Location={state['target_location']}")
+        # print(f"  Intention={state['intention_activity']:.2f}, "
+        #       f"CoS={state['cos_activity']:.2f}, "
+        #       f"Found Precond={state['found_precond_activity']:.2f}")
+        if state['move'] is not None:
+            print(f" Move Intention Activation = {state['move']['intention_activation']} "
+                  f" Move CoS Activation = {state['move']['cos_activation']}"
+                  f" Close Precond Activation = {state['preconditions']['close']['activation']}")
 
         i += 1
         # Stop if completed
-        if log['found_precond_activity'][0] > 0.7:
+        if state['move'] is not None and state['move']['completed']:
             done += 1
             print(f"Reached target at step {step}!")
 
@@ -192,15 +205,15 @@ if __name__ == "__main__":
     plt.tight_layout()
     plt.show()
 
-    # plt.figure(figsize=(8,4))
-    # plt.plot(ts, log["move_intention_activation"], label="Intention Move (activation)")
-    # plt.plot(ts, log["move_cos_activation"], label="CoS Move (activation)")
-    # plt.plot(ts, log["move_intention_activity"], '--', label="Intention Move (activity)")
-    # plt.plot(ts, log["move_cos_activity"], '--', label="CoS Move (activity)")
-    # plt.plot(ts, log["close_precond_activation"], label="Close Precond (activation)")
-    # plt.plot(ts, log["close_precond_activity"], '--', label="Close Precond (activity)")
-    # plt.xlabel("Step")
-    # plt.ylabel("Value")
-    # plt.legend()
-    # plt.tight_layout()
-    # plt.show()
+    plt.figure(figsize=(8,4))
+    plt.plot(ts, log["move_intention_activation"], label="Intention Move (activation)")
+    plt.plot(ts, log["move_cos_activation"], label="CoS Move (activation)")
+    plt.plot(ts, log["move_intention_activity"], '--', label="Intention Move (activity)")
+    plt.plot(ts, log["move_cos_activity"], '--', label="CoS Move (activity)")
+    plt.plot(ts, log["close_precond_activation"], label="Close Precond (activation)")
+    plt.plot(ts, log["close_precond_activity"], '--', label="Close Precond (activity)")
+    plt.xlabel("Step")
+    plt.ylabel("Value")
+    plt.legend()
+    plt.tight_layout()
+    plt.show()
