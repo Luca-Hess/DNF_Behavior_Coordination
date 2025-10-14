@@ -1,7 +1,7 @@
 import torch
 from elementary_behavior_simplified import ElementaryBehaviorSimple
 
-class MoveToBehavior(ElementaryBehaviorSimple):
+class MoveToBehavior(ElementaryBehavior):
     """
     Elementary behavior to move towards a target position.
     Uses interactor for position tracking and navigation.

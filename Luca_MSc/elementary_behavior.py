@@ -3,7 +3,7 @@ import torch.nn as nn
 from DNF_torch.field import Field
 
 
-class ElementaryBehaviorSimple(nn.Module):
+class ElementaryBehavior(nn.Module):
     """
     Elementary behavior structure using Dynamic Neural Fields.
     Includes CoI, CoS, and CoF nodes for behavior control.

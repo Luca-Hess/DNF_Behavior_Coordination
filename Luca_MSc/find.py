@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 from elementary_behavior_simplified import ElementaryBehaviorSimple
 
 
-class FindBehavior(ElementaryBehaviorSimple):
+class FindBehavior(ElementaryBehavior):
     """
     Elementary behavior to find a target object in 3D space.
     Uses external object recognition capabilities to locate objects.
