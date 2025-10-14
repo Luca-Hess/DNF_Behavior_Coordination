@@ -18,8 +18,10 @@ class FindGrabBehavior:
         self.find_behavior = FindBehavior()
         self.move_to_behavior = MoveToBehavior()
 
-        # Create precondition nodes
+        # Add flag for object movement - simulating object changing location!
+        self.object_moved = False
 
+        ## Create precondition nodes
         # Object found precondition
         self.found_precond = Field(
             shape=(),
@@ -27,7 +29,7 @@ class FindGrabBehavior:
             time_scale=100.0,
             resting_level=-3.0,
             beta=20.0,
-            self_connection_w0=3.5
+            self_connection_w0=2
         )
 
         # Close enough to target
@@ -37,7 +39,7 @@ class FindGrabBehavior:
             time_scale=100.0,
             resting_level=-3.0,
             beta=20.0,
-            self_connection_w0=3.5
+            self_connection_w0=2
         )
 
         # Register buffer for prev state
@@ -51,10 +53,10 @@ class FindGrabBehavior:
         )
 
         # Connections
-        self.find_behavior.CoS.connection_to(self.found_precond, 15.0)
+        self.find_behavior.CoS.connection_to(self.found_precond, 6.0)
 
-        #self.found_precond.connection_to(self.move_to_behavior.intention, 6.0)
-        self.move_to_behavior.CoS.connection_to(self.close_precond, 10.0)
+        self.found_precond.connection_to(self.move_to_behavior.intention, 6.0)
+        self.move_to_behavior.CoS.connection_to(self.close_precond, 6.0)
 
 
     def execute_step(self, interactors, target_name, external_input=5.0):
@@ -76,8 +78,22 @@ class FindGrabBehavior:
         if find_state['target_location'] is not None:
             move_state = self.move_to_behavior.execute(
                 interactors.movement,
-                find_state['target_location']
+                find_state['target_location'],
+                external_input = 0.0
             )
+
+        # Check if robot is close to object and object hasn't been moved yet
+        close_is_active = float(close_activity) > 0.7
+        if close_is_active and not self.object_moved and find_state['target_location'] is not None:
+            # Move the object to a new location
+            current_location = find_state['target_location']
+            new_location = torch.tensor(current_location) + torch.tensor([3.0, -2.0, 0.0])
+
+            # Update the perception interactor so find can detect the new location
+            interactors.perception.register_object(target_name, new_location)
+            self.object_moved = True
+            print(f"Object {target_name} moved to new location: {new_location.tolist()}")
+
         # Get current robot position from movement interactor
         robot_position = interactors.movement.get_position()
 
@@ -133,7 +149,7 @@ if __name__ == "__main__":
 
     # Create interactors with a test object
     interactors = RobotInteractors()
-    interactors.perception.register_object("cup", torch.tensor([1.2, 0.5, 0.8]))
+    interactors.perception.register_object("cup", torch.tensor([5.2, 10.5, 1.8]))
 
     # Create the find-grab behavior
     find_grab = FindGrabBehavior()
@@ -142,7 +158,7 @@ if __name__ == "__main__":
     print("Starting find behavior for 'cup'...")
     i = 0
     done = 0
-    for step in range(100):
+    for step in range(1000):
         # Execute find behavior
         state = find_grab.execute_step(interactors, "cup", external_input)
 
@@ -170,12 +186,13 @@ if __name__ == "__main__":
 
         # Print status
         print(f"Step {step}: Active={state['find']['active']}, Completed={state['find']['completed']}")
+        # print(f"  Found={state['find']['target_found']}, "
+        #       f"Location={state['find']['target_location']}")
+        # print(f"  Intention={state['find']['intention_activity']:.2f}, "
+        #       f"CoS={state['find']['cos_activity']:.2f}, "
+        #       f"Found Precond={state['preconditions']['found']['activity']:.2f}")
+
         print(f"Active Movement={state['move']['active'] if state['move'] else False}, Completed Movement={state['move']['completed'] if state['move'] else False}")
-        # print(f"  Found={state['target_found']}, "
-        #       f"Location={state['target_location']}")
-        # print(f"  Intention={state['intention_activity']:.2f}, "
-        #       f"CoS={state['cos_activity']:.2f}, "
-        #       f"Found Precond={state['found_precond_activity']:.2f}")
         if state['move'] is not None:
             print(f" Move Intention Activation = {state['move']['intention_activation']} "
                   f" Move CoS Activation = {state['move']['cos_activation']}"
@@ -187,8 +204,8 @@ if __name__ == "__main__":
             done += 1
             print(f"Reached target at step {step}!")
 
-        if done >= 10:
-            break
+        #if done >= 50:
+            #break
 
     # Plotting the activities of all nodes over time
     ts = np.arange(i)

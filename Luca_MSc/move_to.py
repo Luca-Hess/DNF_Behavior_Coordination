@@ -22,41 +22,35 @@ class MoveToBehavior(ElementaryBehaviorSimple):
         Returns:
             dict: Behavior state and movement commands
         """
+        # If no target, stay quiescent
         if target_location is None:
-            # No target, can't move
             state = self.forward(0.0, 0.0)
-            return {**state, 'motor_commands': None, 'distance': float('inf')}
+            state['arrived'] = False
+            state['motor_commands'] = None
+            return state
 
-        # Get current position and calculate distance via the interactor
-        current_position = interactor.get_position()
-        distance_to_target = interactor.calculate_distance(target_location)
+        # Arrival check based on data from interactor, with specified "arrival" threshold
+        arrived = bool(interactor.is_at(target_location, thresh=0.1))
 
-        # Calculate scalar inputs for control nodes:
-        intention_input = external_input if not self.is_completed else 0.0
-
-        # CoS: Activate when close enough to target
-        cos_gain = 100.0
-        cos_threshold = 0.1  # Distance for satisfaction
-        cos_input = cos_gain * max(0.0, cos_threshold - distance_to_target)
+        # Prepare inputs for nodes
+        intention_input = external_input
+        cos_input = 5.0 if arrived else 0.0
 
         # Process behavior control
         state = self.forward(intention_input, cos_input)
 
         # Generate motor commands if active
-        motor_commands = None
-        if state['active']:
-            # Simple proportional controller
-            direction = target_location[:2] - current_position[:2]  # Planar direction
-            direction = torch.clamp(direction, -10.0, 10.0)
-            motor_gain = 0.5
-            motor_commands = motor_gain * direction
+        motor_cmd = None
+        if float(state.get('intention_activity', 0.0)) > 0.0 and not arrived:
+            motor_cmd = interactor.move_towards(target_location)
 
-            # Execute movement via interactor
-            if motor_commands is not None:
-                interactor.move_robot(motor_commands)
-
-        # Add additional info to state
-        state['distance'] = distance_to_target
-        state['motor_commands'] = motor_commands.tolist() if motor_commands is not None else None
+        # Diagnostics/echo
+        state['arrived'] = arrived
+        state['motor_commands'] = (
+            motor_cmd.tolist() if hasattr(motor_cmd, "tolist") else motor_cmd
+        )
 
         return state
+
+    def reset(self):
+        super().reset()
