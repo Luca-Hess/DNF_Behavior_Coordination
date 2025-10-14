@@ -1,7 +1,7 @@
 import torch
 import numpy as np
 import matplotlib.pyplot as plt
-from elementary_behavior_simplified import ElementaryBehaviorSimple
+from elementary_behavior import ElementaryBehavior
 
 
 class FindBehavior(ElementaryBehavior):

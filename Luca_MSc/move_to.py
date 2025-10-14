@@ -1,5 +1,5 @@
 import torch
-from elementary_behavior_simplified import ElementaryBehaviorSimple
+from elementary_behavior import ElementaryBehavior
 
 class MoveToBehavior(ElementaryBehavior):
     """
