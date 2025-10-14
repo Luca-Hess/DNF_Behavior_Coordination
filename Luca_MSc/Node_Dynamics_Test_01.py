@@ -30,9 +30,6 @@ inhibition_weight = -6
 
 fields = [node_1, node_2]
 
-node1_activities = []
-node2_activities = []
-
 node_1.connection_to(node_2, weight=excitation_weight)
 node_2.connection_to(node_1, weight=inhibition_weight)
 
@@ -56,8 +53,19 @@ else:
         for n in (node_1, node_2):
             n.cache_prev()
 
-        u1, g1 = node_1.forward(input_tensor=constant_excitation)
-        u2, g2 = node_2.forward()
+        u1, g1 = node_1(input_tensor=constant_excitation)
+        u2, g2 = node_2()
+
+        # g1_prev = node_1.g_u.clone()
+        # g2_prev = node_2.g_u.clone()
+        #
+        # # Cross inputs based on previous step's activations
+        # input_to_node1 = inhibition_weight * g2_prev + constant_excitation
+        # input_to_node2 = excitation_weight * g1_prev
+        #
+        # # Advance both nodes
+        # u1, g1 = node_1.forward(input_tensor=input_to_node1)
+        # u2, g2 = node_2.forward(input_tensor=input_to_node2)
 
         # Store logs
         log["u1"].append(u1.item())
