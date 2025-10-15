@@ -3,7 +3,6 @@ import numpy as np
 import matplotlib
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
-from matplotlib.animation import FuncAnimation
 
 from DNF_torch.field import Field
 from SimulationVisualizer import RobotSimulationVisualizer
@@ -13,6 +12,8 @@ from find import FindBehavior
 from move_to import MoveToBehavior
 from check_effector_range import CheckEffectorRange
 from reach_for import ReachForBehavior
+
+from helper_functions import move_object, initalize_log, update_log, plot_logs
 
 
 class FindGrabBehavior:
@@ -156,14 +157,8 @@ class FindGrabBehavior:
         # Check if robot is close to object and object hasn't been moved yet
         close_is_active = float(close_activity) > 0.7
         if close_is_active and not self.object_moved and find_state['target_location'] is not None:
-            # Move the object to a new location
-            current_location = find_state['target_location']
-            new_location = current_location.clone().detach() + torch.tensor([5.0, -2.0, 0.0])
-
-            # Update the perception interactor so find can detect the new location
-            interactors.perception.register_object(target_name, new_location)
+            move_object(find_state, target_name, interactors)
             self.object_moved = True
-            print(f"Object {target_name} moved to new location: {new_location.tolist()}")
 
         # Get current robot position from movement interactor
         robot_position = interactors.movement.get_position()
@@ -220,30 +215,7 @@ class FindGrabBehavior:
 # Example usage
 if __name__ == "__main__":
     # Log all activations and activities for plotting
-    log = {"intention_activation": [],
-           "intention_activity": [],
-           "cos_activation": [],
-           "cos_activity": [],
-           "found_precond_activation": [],
-           "found_precond_activity": [],
-           "move_intention_activation": [],
-           "move_intention_activity": [],
-           "move_cos_activation": [],
-           "move_cos_activity": [],
-           "close_precond_activation": [],
-           "close_precond_activity": [],
-           "reach_intention_activation": [],
-           "reach_intention_activity": [],
-           "reach_cos_activation": [],
-           "reach_cos_activity": [],
-           "in_reach_precond_activation": [],
-           "in_reach_precond_activity": [],
-           "reach_for_intention_activation": [],
-           "reach_for_intention_activity": [],
-           "reach_for_cos_activation": [],
-           "reach_for_cos_activity": [],
-           "reached_precond_activation": [],
-           "reached_precond_activity": []}
+    log = initalize_log()
 
     # Create simulation visualizer
     visualize = False
@@ -255,7 +227,6 @@ if __name__ == "__main__":
 
     # External input activates find_grab behavior sequence
     external_input = 5.0
-
 
     # Create interactors with a test object
     interactors = RobotInteractors()
@@ -276,66 +247,16 @@ if __name__ == "__main__":
         if visualize:
             simulation_states.append(state)
 
-        # Log activities for plotting
-        log["intention_activation"].append(state['find']['intention_activation'])
-        log["intention_activity"].append(state['find']['intention_activity'])
-        log["cos_activation"].append(state['find']['cos_activation'])
-        log["cos_activity"].append(state['find']['cos_activity'])
-        log["found_precond_activation"].append(state['preconditions']['found']['activation'])
-        log["found_precond_activity"].append(state['preconditions']['found']['activity'])
-
-        if state['move'] is not None:
-            log["move_intention_activation"].append(state['move']['intention_activation'])
-            log["move_intention_activity"].append(state['move']['intention_activity'])
-            log["move_cos_activation"].append(state['move']['cos_activation'])
-            log["move_cos_activity"].append(state['move']['cos_activity'])
-            log["close_precond_activation"].append(state['preconditions']['close']['activation'])
-            log["close_precond_activity"].append(state['preconditions']['close']['activity'])
-        else:
-            log["move_intention_activation"].append(-3.0)
-            log["move_intention_activity"].append(0.0)
-            log["move_cos_activation"].append(-3.0)
-            log["move_cos_activity"].append(0.0)
-            log["close_precond_activation"].append(-3.0)
-            log["close_precond_activity"].append(0.0)
-
-        if state['in_reach'] is not None:
-            log["reach_intention_activation"].append(state['in_reach']['intention_activation'])
-            log["reach_intention_activity"].append(state['in_reach']['intention_activity'])
-            log["reach_cos_activation"].append(state['in_reach']['cos_activation'])
-            log["reach_cos_activity"].append(state['in_reach']['cos_activity'])
-            log["in_reach_precond_activation"].append(state['preconditions']['in_reach']['activation'])
-            log["in_reach_precond_activity"].append(state['preconditions']['in_reach']['activity'])
-        else:
-            log["reach_intention_activation"].append(-3.0)
-            log["reach_intention_activity"].append(0.0)
-            log["reach_cos_activation"].append(-3.0)
-            log["reach_cos_activity"].append(0.0)
-            log["in_reach_precond_activation"].append(-3.0)
-            log["in_reach_precond_activity"].append(0.0)
-
-        if state['reach_for'] is not None:
-            log["reach_for_intention_activation"].append(state['reach_for']['intention_activation'])
-            log["reach_for_intention_activity"].append(state['reach_for']['intention_activity'])
-            log["reach_for_cos_activation"].append(state['reach_for']['cos_activation'])
-            log["reach_for_cos_activity"].append(state['reach_for']['cos_activity'])
-            log["reached_precond_activation"].append(state['preconditions']['reached']['activation'])
-            log["reached_precond_activity"].append(state['preconditions']['reached']['activity'])
-        else:
-            log["reach_for_intention_activation"].append(-3.0)
-            log["reach_for_intention_activity"].append(0.0)
-            log["reach_for_cos_activation"].append(-3.0)
-            log["reach_for_cos_activity"].append(0.0)
-            log["reached_precond_activation"].append(-3.0)
-            log["reached_precond_activity"].append(0.0)
+        # Store logs
+        update_log(log, state)
 
         # Print status
         print(f"Step {step}: Active={state['find']['active']}, Completed={state['find']['completed']}")
-        # print(f"  Found={state['find']['target_found']}, "
-        #       f"Location={state['find']['target_location']}")
-        # print(f"  Intention={state['find']['intention_activity']:.2f}, "
-        #       f"CoS={state['find']['cos_activity']:.2f}, "
-        #       f"Found Precond={state['preconditions']['found']['activity']:.2f}")
+        print(f"  Found={state['find']['target_found']}, "
+              f"Location={state['find']['target_location']}")
+        print(f"  Intention={state['find']['intention_activity']:.2f}, "
+              f"CoS={state['find']['cos_activity']:.2f}, "
+              f"Found Precond={state['preconditions']['found']['activity']:.2f}")
 
         # print(f"Active Movement={state['move']['active'] if state['move'] else False}, Completed Movement={state['move']['completed'] if state['move'] else False}")
         # if state['move'] is not None:
@@ -347,58 +268,7 @@ if __name__ == "__main__":
 
     # Plotting the activities of all nodes over time
     if not visualize:
-        ts = np.arange(i)
-        plt.figure(figsize=(8,4))
-        plt.plot(ts, log["intention_activation"], label="Intention Find (activation)")
-        plt.plot(ts, log["cos_activation"], label="CoS Find (activation)")
-        plt.plot(ts, log["intention_activity"], '--', label="Intention Find (activity)")
-        plt.plot(ts, log["cos_activity"], '--', label="CoS Find (activity)")
-        plt.plot(ts, log["found_precond_activation"], label="Found Precond (activation)")
-        plt.plot(ts, log["found_precond_activity"], '--', label="Found Precond (activity)")
-        plt.xlabel("Step")
-        plt.ylabel("Value")
-        plt.legend()
-        plt.tight_layout()
-        plt.show()
-
-        plt.figure(figsize=(8,4))
-        plt.plot(ts, log["move_intention_activation"], label="Intention Move (activation)")
-        plt.plot(ts, log["move_cos_activation"], label="CoS Move (activation)")
-        plt.plot(ts, log["move_intention_activity"], '--', label="Intention Move (activity)")
-        plt.plot(ts, log["move_cos_activity"], '--', label="CoS Move (activity)")
-        plt.plot(ts, log["close_precond_activation"], label="Close Precond (activation)")
-        plt.plot(ts, log["close_precond_activity"], '--', label="Close Precond (activity)")
-        plt.xlabel("Step")
-        plt.ylabel("Value")
-        plt.legend()
-        plt.tight_layout()
-        plt.show()
-
-        plt.figure(figsize=(8,4))
-        plt.plot(ts, log["reach_intention_activation"], label="Intention InReach (activation)")
-        plt.plot(ts, log["reach_cos_activation"], label="CoS InReach (activation)")
-        plt.plot(ts, log["reach_intention_activity"], '--', label="Intention InReach (activity)")
-        plt.plot(ts, log["reach_cos_activity"], '--', label="CoS InReach (activity)")
-        plt.plot(ts, log["in_reach_precond_activation"], label="In Reach Precond (activation)")
-        plt.plot(ts, log["in_reach_precond_activity"], '--', label="In Reach Precond (activity)")
-        plt.xlabel("Step")
-        plt.ylabel("Value")
-        plt.legend()
-        plt.tight_layout()
-        plt.show()
-
-        plt.figure(figsize=(8,4))
-        plt.plot(ts, log["reach_for_intention_activation"], label="Intention ReachFor (activation)")
-        plt.plot(ts, log["reach_for_cos_activation"], label="CoS ReachFor (activation)")
-        plt.plot(ts, log["reach_for_intention_activity"], '--', label="Intention ReachFor (activity)")
-        plt.plot(ts, log["reach_for_cos_activity"], '--', label="CoS ReachFor (activity)")
-        plt.plot(ts, log["reached_precond_activation"], label="Reached Precond (activation)")
-        plt.plot(ts, log["reached_precond_activity"], '--', label="Reached Precond (activity)")
-        plt.xlabel("Step")
-        plt.ylabel("Value")
-        plt.legend()
-        plt.tight_layout()
-        plt.show()
+        plot_logs(log, steps=i)  # or steps=500 if you always run 500 steps
 
     # Create animation
     if visualize:
