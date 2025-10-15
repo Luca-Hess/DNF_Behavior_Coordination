@@ -6,6 +6,7 @@ from interactors import RobotInteractors
 
 from find import FindBehavior
 from move_to import MoveToBehavior
+from check_effector_range import CheckEffectorRange
 
 
 class FindGrabBehavior:
@@ -17,6 +18,7 @@ class FindGrabBehavior:
         # Create component behaviors
         self.find_behavior = FindBehavior()
         self.move_to_behavior = MoveToBehavior()
+        self.check_effector_range_behavior = CheckEffectorRange()
 
         # Add flag for object movement - simulating object changing location!
         self.object_moved = False
@@ -32,8 +34,18 @@ class FindGrabBehavior:
             self_connection_w0=2
         )
 
-        # Close enough to target
+        # Robot base close enough to target
         self.close_precond = Field(
+            shape=(),
+            time_step=5.0,
+            time_scale=100.0,
+            resting_level=-3.0,
+            beta=20.0,
+            self_connection_w0=2
+        )
+
+        # Robot end-effector has enough reach to grab the target object
+        self.in_reach_precond = Field(
             shape=(),
             time_step=5.0,
             time_scale=100.0,
@@ -51,12 +63,24 @@ class FindGrabBehavior:
             "g_u_prev",
             torch.zeros_like(self.close_precond.g_u)
         )
+        self.in_reach_precond.register_buffer(
+            "g_u_prev",
+            torch.zeros_like(self.in_reach_precond.g_u)
+        )
 
         # Connections
+        # Find -> Found Precondition
         self.find_behavior.CoS.connection_to(self.found_precond, 6.0)
 
+        # Found Precondition -> MoveTo
         self.found_precond.connection_to(self.move_to_behavior.intention, 6.0)
         self.move_to_behavior.CoS.connection_to(self.close_precond, 6.0)
+
+        # Found Precondition -> CheckEffectorRange
+        self.found_precond.connection_to(self.check_effector_range_behavior.intention, 6.0)
+        self.check_effector_range_behavior.CoS.connection_to(self.in_reach_precond, 6.0)
+
+        # Close & In Reach Preconditions -> ReachFor
 
 
     def execute_step(self, interactors, target_name, external_input=5.0):
@@ -65,13 +89,21 @@ class FindGrabBehavior:
         # Cache prev state for the precondition
         self.found_precond.cache_prev()
         self.close_precond.cache_prev()
+        self.in_reach_precond.cache_prev()
 
         # Execute find behavior
         find_state = self.find_behavior.execute(interactors.perception, target_name, external_input)
+        reach_state = self.check_effector_range_behavior.execute(
+            interactors.perception,
+            find_state['target_location'],
+            effector_reach = 1.9,
+            external_input = 0.0
+        )
 
         # Process the found precondition node (no external input)
         found_activation, found_activity = self.found_precond()
         close_activation, close_activity = self.close_precond()
+        in_reach_activation, in_reach_activity = self.in_reach_precond()
 
         # Execute move-to behavior with precondition input, only if found is active
         move_state = None
@@ -87,7 +119,7 @@ class FindGrabBehavior:
         if close_is_active and not self.object_moved and find_state['target_location'] is not None:
             # Move the object to a new location
             current_location = find_state['target_location']
-            new_location = torch.tensor(current_location) + torch.tensor([3.0, -2.0, 0.0])
+            new_location = torch.tensor(current_location.detach()) + torch.tensor([5.0, -2.0, 0.0])
 
             # Update the perception interactor so find can detect the new location
             interactors.perception.register_object(target_name, new_location)
@@ -100,6 +132,7 @@ class FindGrabBehavior:
         state = {
             'find': find_state,
             'move': move_state,
+            'in_reach': reach_state,
             'preconditions': {
                 'found': {
                     'activation': float(found_activation.detach()),
@@ -110,7 +143,12 @@ class FindGrabBehavior:
                     'activation': float(close_activation.detach()),
                     'activity': float(close_activity.detach()),
                     'active': float(close_activity) > 0.7
-                }
+                },
+                'in_reach': {
+                    'activation': float(in_reach_activation.detach()),
+                    'activity': float(in_reach_activity.detach()),
+                    'active': float(in_reach_activity) > 0.7
+                },
             },
             'robot':{
                 'position': robot_position.tolist()
@@ -125,6 +163,8 @@ class FindGrabBehavior:
         self.found_precond.reset()
         self.move_to_behavior.reset()
         self.close_precond.reset()
+        self.check_effector_range_behavior.reset()
+        self.in_reach_precond.reset()
 
 
 # Example usage
@@ -141,7 +181,13 @@ if __name__ == "__main__":
            "move_cos_activation": [],
            "move_cos_activity": [],
            "close_precond_activation": [],
-           "close_precond_activity": []}
+           "close_precond_activity": [],
+           "reach_intention_activation": [],
+           "reach_intention_activity": [],
+           "reach_cos_activation": [],
+           "reach_cos_activity": [],
+           "in_reach_precond_activation": [],
+           "in_reach_precond_activity": []}
 
     # External input activates find_grab behavior sequence
     external_input = 5.0
@@ -158,7 +204,7 @@ if __name__ == "__main__":
     print("Starting find behavior for 'cup'...")
     i = 0
     done = 0
-    for step in range(1000):
+    for step in range(500):
         # Execute find behavior
         state = find_grab.execute_step(interactors, "cup", external_input)
 
@@ -169,6 +215,7 @@ if __name__ == "__main__":
         log["cos_activity"].append(state['find']['cos_activity'])
         log["found_precond_activation"].append(state['preconditions']['found']['activation'])
         log["found_precond_activity"].append(state['preconditions']['found']['activity'])
+
         if state['move'] is not None:
             log["move_intention_activation"].append(state['move']['intention_activation'])
             log["move_intention_activity"].append(state['move']['intention_activity'])
@@ -184,6 +231,21 @@ if __name__ == "__main__":
             log["close_precond_activation"].append(-3.0)
             log["close_precond_activity"].append(0.0)
 
+        if state['in_reach'] is not None:
+            log["reach_intention_activation"].append(state['in_reach']['intention_activation'])
+            log["reach_intention_activity"].append(state['in_reach']['intention_activity'])
+            log["reach_cos_activation"].append(state['in_reach']['cos_activation'])
+            log["reach_cos_activity"].append(state['in_reach']['cos_activity'])
+            log["in_reach_precond_activation"].append(state['preconditions']['in_reach']['activation'])
+            log["in_reach_precond_activity"].append(state['preconditions']['in_reach']['activity'])
+        else:
+            log["reach_intention_activation"].append(-3.0)
+            log["reach_intention_activity"].append(0.0)
+            log["reach_cos_activation"].append(-3.0)
+            log["reach_cos_activity"].append(0.0)
+            log["in_reach_precond_activation"].append(-3.0)
+            log["in_reach_precond_activity"].append(0.0)
+
         # Print status
         print(f"Step {step}: Active={state['find']['active']}, Completed={state['find']['completed']}")
         # print(f"  Found={state['find']['target_found']}, "
@@ -192,15 +254,15 @@ if __name__ == "__main__":
         #       f"CoS={state['find']['cos_activity']:.2f}, "
         #       f"Found Precond={state['preconditions']['found']['activity']:.2f}")
 
-        print(f"Active Movement={state['move']['active'] if state['move'] else False}, Completed Movement={state['move']['completed'] if state['move'] else False}")
-        if state['move'] is not None:
-            print(f" Move Intention Activation = {state['move']['intention_activation']} "
-                  f" Move CoS Activation = {state['move']['cos_activation']}"
-                  f" Close Precond Activation = {state['preconditions']['close']['activation']}")
+        # print(f"Active Movement={state['move']['active'] if state['move'] else False}, Completed Movement={state['move']['completed'] if state['move'] else False}")
+        # if state['move'] is not None:
+        #     print(f" Move Intention Activation = {state['move']['intention_activation']} "
+        #           f" Move CoS Activation = {state['move']['cos_activation']}"
+        #           f" Close Precond Activation = {state['preconditions']['close']['activation']}")
 
         i += 1
         # Stop if completed
-        if state['move'] is not None and state['move']['completed']:
+        if state['in_reach'] is not None and state['in_reach']['completed']:
             done += 1
             print(f"Reached target at step {step}!")
 
@@ -229,6 +291,19 @@ if __name__ == "__main__":
     plt.plot(ts, log["move_cos_activity"], '--', label="CoS Move (activity)")
     plt.plot(ts, log["close_precond_activation"], label="Close Precond (activation)")
     plt.plot(ts, log["close_precond_activity"], '--', label="Close Precond (activity)")
+    plt.xlabel("Step")
+    plt.ylabel("Value")
+    plt.legend()
+    plt.tight_layout()
+    plt.show()
+
+    plt.figure(figsize=(8,4))
+    plt.plot(ts, log["reach_intention_activation"], label="Intention Reach (activation)")
+    plt.plot(ts, log["reach_cos_activation"], label="CoS Reach (activation)")
+    plt.plot(ts, log["reach_intention_activity"], '--', label="Intention Reach (activity)")
+    plt.plot(ts, log["reach_cos_activity"], '--', label="CoS Reach (activity)")
+    plt.plot(ts, log["in_reach_precond_activation"], label="In Reach Precond (activation)")
+    plt.plot(ts, log["in_reach_precond_activity"], '--', label="In Reach Precond (activity)")
     plt.xlabel("Step")
     plt.ylabel("Value")
     plt.legend()

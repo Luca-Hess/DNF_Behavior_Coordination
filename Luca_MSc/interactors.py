@@ -6,9 +6,14 @@ random.seed(1)
 class PerceptionInteractor:
     """Handles object detection and tracking."""
 
-    def __init__(self, tracking_loss_prob=0.2, max_tracking_loss_duration=5):
+    def __init__(self, tracking_loss_prob=0.2, max_tracking_loss_duration=5, get_robot_position=None):
         self.objects = {}
         self.search_attempts = 0
+
+        # Robot position (for range checks)
+        if get_robot_position is None:
+            raise ValueError("PerceptionInteractor requires a get_robot_position callable")
+        self._get_robot_position = get_robot_position
 
         # Simulating tracking loss
         self.tracking_loss_probability = tracking_loss_prob
@@ -40,6 +45,20 @@ class PerceptionInteractor:
         if name in self.objects and self.search_attempts >= 3:
             return True, self.objects[name]
         return False, None
+
+    def in_range(self, target_location, reach: float = 0.5) -> bool:
+        """Check if target is within a certain range in 3D space,
+        based on the end-effector reach."""
+        if target_location is None:
+            return False
+
+        robot_pos = self._get_robot_position()
+
+        distance = torch.norm(target_location - robot_pos)  # 3D distance
+        if distance > reach:
+            return False
+        else:
+            return True
 
     def reset(self):
         """Reset perception state."""
@@ -130,8 +149,8 @@ class RobotInteractors:
     """Facade that provides access to all interactors."""
 
     def __init__(self):
-        self.perception = PerceptionInteractor()
         self.movement = MovementInteractor()
+        self.perception = PerceptionInteractor(get_robot_position=self.movement.get_position)
 
     def reset(self):
         """Reset all interactors."""
