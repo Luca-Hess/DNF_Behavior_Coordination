@@ -55,7 +55,6 @@ class FindBehavior(ElementaryBehavior):
 
         # Remember last active state
         self._last_active = bool(state.get('active', False))
-        #self._last_active = float(state.get('intention_activity', 0.0)) > 0.0
 
         return state
 

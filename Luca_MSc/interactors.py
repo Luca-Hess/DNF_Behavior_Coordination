@@ -144,15 +144,78 @@ class MovementInteractor:
         """Reset movement state."""
         self.robot_position = torch.tensor([0.0, 0.0, 0.0])
 
+class GripperInteractor:
+    """Handles gripper position and movement."""
+
+    def __init__(
+            self,
+            max_speed = 0.1,        # max speed per step
+            gain = 1.0,
+            stop_threshold = 0.01   # distance to consider "arrived"
+        ):
+        self.gripper_position = torch.tensor([0.0, 0.0, 0.0])
+        self.max_speed = max_speed
+        self.gain = gain
+        self.stop_threshold = stop_threshold
+
+    def get_position(self):
+        """Get the current gripper position."""
+        return self.gripper_position.clone()
+
+    def calculate_distance(self, target_location):
+        """Calculate distance from gripper to target."""
+        if target_location is None:
+            return float('inf')
+
+        distance = torch.norm(target_location - self.gripper_position)  # 3D distance
+        return float(distance)
+
+    def gripper_is_at(self, target_location, thresh: float = None) -> bool:
+        """Arrival test within threshold."""
+        if target_location is None:
+            return False
+        threshold = self.stop_threshold if thresh is None else float(thresh)
+        return self.calculate_distance(target_location) <= threshold
+
+    def _direction_and_distance(self, target_location):
+        """Internal: unit direction (3D) and distance."""
+        delta = target_location - self.gripper_position
+        dist = torch.norm(delta)
+        if dist.item() == 0.0:
+            return torch.tensor([0.0, 0.0, 0.0]), 0.0
+        return (delta / dist), float(dist)
+
+    def gripper_move_towards(self, target_location):
+        """
+        Plan and execute a single bounded step toward target.
+        Returns the applied motor command tensor [dx, dy, dz] or None if arrived/invalid.
+        """
+        if target_location is None:
+            return None
+        if self.gripper_is_at(target_location):
+            return None
+
+        direction, distance = self._direction_and_distance(target_location)
+        # Proportional step with clamp to max_speed and no overshoot
+        step_mag = min(self.max_speed, self.gain * distance, distance)
+        step_vec = direction * step_mag
+
+        # Update pose (3D)
+        self.gripper_position += step_vec
+
+        motor_cmd = step_vec
+        return motor_cmd
 
 class RobotInteractors:
     """Facade that provides access to all interactors."""
 
     def __init__(self):
         self.movement = MovementInteractor()
+        self.gripper = GripperInteractor()
         self.perception = PerceptionInteractor(get_robot_position=self.movement.get_position)
 
     def reset(self):
         """Reset all interactors."""
         self.perception.reset()
         self.movement.reset()
+        self.gripper.reset()

@@ -7,6 +7,7 @@ from interactors import RobotInteractors
 from find import FindBehavior
 from move_to import MoveToBehavior
 from check_effector_range import CheckEffectorRange
+from reach_for import ReachForBehavior
 
 
 class FindGrabBehavior:
@@ -19,6 +20,7 @@ class FindGrabBehavior:
         self.find_behavior = FindBehavior()
         self.move_to_behavior = MoveToBehavior()
         self.check_effector_range_behavior = CheckEffectorRange()
+        self.reach_for_behavior = ReachForBehavior()
 
         # Add flag for object movement - simulating object changing location!
         self.object_moved = False
@@ -80,8 +82,9 @@ class FindGrabBehavior:
         self.found_precond.connection_to(self.check_effector_range_behavior.intention, 6.0)
         self.check_effector_range_behavior.CoS.connection_to(self.in_reach_precond, 6.0)
 
-        # Close & In Reach Preconditions -> ReachFor
-
+        # Close & In Reach Preconditions -> ReachFor (two preconditions needed)
+        self.close_precond.connection_to(self.reach_for_behavior.intention, 2.0)
+        self.in_reach_precond.connection_to(self.reach_for_behavior.intention, 2.0)
 
     def execute_step(self, interactors, target_name, external_input=5.0):
         """Execute the find portion of the behavior chain."""
@@ -93,12 +96,6 @@ class FindGrabBehavior:
 
         # Execute find behavior
         find_state = self.find_behavior.execute(interactors.perception, target_name, external_input)
-        reach_state = self.check_effector_range_behavior.execute(
-            interactors.perception,
-            find_state['target_location'],
-            effector_reach = 1.9,
-            external_input = 0.0
-        )
 
         # Process the found precondition node (no external input)
         found_activation, found_activity = self.found_precond()
@@ -126,13 +123,33 @@ class FindGrabBehavior:
             self.object_moved = True
             print(f"Object {target_name} moved to new location: {new_location.tolist()}")
 
+        # Execute check-effector-range behavior
+        in_reach_state = self.check_effector_range_behavior.execute(
+            interactors.perception,
+            find_state['target_location'],
+            effector_reach = 1.9,
+            external_input = 0.0
+        )
+
+        # Execute reach-for behavior
+        reach_for_state = None
+        if find_state['target_location'] is not None:
+            reach_for_state = self.reach_for_behavior.execute(
+                interactors.gripper,
+                find_state['target_location'],
+                external_input = 0.0
+            )
+
+
         # Get current robot position from movement interactor
         robot_position = interactors.movement.get_position()
+        gripper_position = interactors.gripper.get_position()
 
         state = {
             'find': find_state,
             'move': move_state,
-            'in_reach': reach_state,
+            'in_reach': in_reach_state,
+            'reach_for': reach_for_state,
             'preconditions': {
                 'found': {
                     'activation': float(found_activation.detach()),
@@ -153,6 +170,9 @@ class FindGrabBehavior:
             'robot':{
                 'position': robot_position.tolist()
             },
+            'gripper':{
+                'position': gripper_position.tolist()
+            }
         }
 
         return state
@@ -165,6 +185,7 @@ class FindGrabBehavior:
         self.close_precond.reset()
         self.check_effector_range_behavior.reset()
         self.in_reach_precond.reset()
+        self.reach_for_behavior.reset()
 
 
 # Example usage
@@ -187,7 +208,11 @@ if __name__ == "__main__":
            "reach_cos_activation": [],
            "reach_cos_activity": [],
            "in_reach_precond_activation": [],
-           "in_reach_precond_activity": []}
+           "in_reach_precond_activity": [],
+           "reach_for_intention_activation": [],
+           "reach_for_intention_activity": [],
+           "reach_for_cos_activation": [],
+           "reach_for_cos_activity": []}
 
     # External input activates find_grab behavior sequence
     external_input = 5.0
@@ -245,6 +270,17 @@ if __name__ == "__main__":
             log["reach_cos_activity"].append(0.0)
             log["in_reach_precond_activation"].append(-3.0)
             log["in_reach_precond_activity"].append(0.0)
+
+        if state['reach_for'] is not None:
+            log["reach_for_intention_activation"].append(state['reach_for']['intention_activation'])
+            log["reach_for_intention_activity"].append(state['reach_for']['intention_activity'])
+            log["reach_for_cos_activation"].append(state['reach_for']['cos_activation'])
+            log["reach_for_cos_activity"].append(state['reach_for']['cos_activity'])
+        else:
+            log["reach_for_intention_activation"].append(-3.0)
+            log["reach_for_intention_activity"].append(0.0)
+            log["reach_for_cos_activation"].append(-3.0)
+            log["reach_for_cos_activity"].append(0.0)
 
         # Print status
         print(f"Step {step}: Active={state['find']['active']}, Completed={state['find']['completed']}")
@@ -304,6 +340,17 @@ if __name__ == "__main__":
     plt.plot(ts, log["reach_cos_activity"], '--', label="CoS Reach (activity)")
     plt.plot(ts, log["in_reach_precond_activation"], label="In Reach Precond (activation)")
     plt.plot(ts, log["in_reach_precond_activity"], '--', label="In Reach Precond (activity)")
+    plt.xlabel("Step")
+    plt.ylabel("Value")
+    plt.legend()
+    plt.tight_layout()
+    plt.show()
+
+    plt.figure(figsize=(8,4))
+    plt.plot(ts, log["reach_for_intention_activation"], label="Intention ReachFor (activation)")
+    plt.plot(ts, log["reach_for_cos_activation"], label="CoS ReachFor (activation)")
+    plt.plot(ts, log["reach_for_intention_activity"], '--', label="Intention ReachFor (activity)")
+    plt.plot(ts, log["reach_for_cos_activity"], '--', label="CoS ReachFor (activity)")
     plt.xlabel("Step")
     plt.ylabel("Value")
     plt.legend()
