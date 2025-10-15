@@ -10,13 +10,14 @@ class ReachForBehavior(ElementaryBehavior):
     def __init__(self, field_params=None):
         super().__init__(field_params)
 
-    def execute(self, interactor, target_location, external_input=0.0):
+    def execute(self, interactor, target_location, threshold, external_input=0.0):
         """
         Execute one step of the move-to behavior.
 
         Args:
             interactor: Object providing position and navigation capabilities
             target_location: 3D position of the target
+            threshold: Distance threshold to consider "arrived"
             external_input: Additional input to intention node (e.g., from preconditions)
 
         Returns:
@@ -30,7 +31,7 @@ class ReachForBehavior(ElementaryBehavior):
             return state
 
         # Grippe arrival at object check based on data from interactor, with specified "arrival" threshold
-        gripper_arrived = bool(interactor.gripper_is_at(target_location, thresh=0.01))
+        gripper_arrived = bool(interactor.gripper_is_at(target_location, thresh=threshold))
 
         # Prepare inputs for nodes
         cos_input = 5.0 if gripper_arrived else 0.0

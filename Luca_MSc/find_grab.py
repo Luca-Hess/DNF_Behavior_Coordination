@@ -1,7 +1,12 @@
 import torch
 import numpy as np
+import matplotlib
 import matplotlib.pyplot as plt
+from matplotlib.animation import FuncAnimation
+from matplotlib.animation import FuncAnimation
+
 from DNF_torch.field import Field
+from SimulationVisualizer import RobotSimulationVisualizer
 from interactors import RobotInteractors
 
 from find import FindBehavior
@@ -22,7 +27,7 @@ class FindGrabBehavior:
         self.check_effector_range_behavior = CheckEffectorRange()
         self.reach_for_behavior = ReachForBehavior()
 
-        # Add flag for object movement - simulating object changing location!
+        # Flag for object movement - simulating object changing location!
         self.object_moved = False
 
         ## Create precondition nodes
@@ -56,6 +61,16 @@ class FindGrabBehavior:
             self_connection_w0=2
         )
 
+        # Robot end-effector has reached the target object
+        self.reached_target_precond = Field(
+            shape=(),
+            time_step=5.0,
+            time_scale=100.0,
+            resting_level=-3.0,
+            beta=20.0,
+            self_connection_w0=2
+        )
+
         # Register buffer for prev state
         self.found_precond.register_buffer(
             "g_u_prev",
@@ -68,6 +83,10 @@ class FindGrabBehavior:
         self.in_reach_precond.register_buffer(
             "g_u_prev",
             torch.zeros_like(self.in_reach_precond.g_u)
+        )
+        self.reached_target_precond.register_buffer(
+            "g_u_prev",
+            torch.zeros_like(self.reached_target_precond.g_u)
         )
 
         # Connections
@@ -83,8 +102,10 @@ class FindGrabBehavior:
         self.check_effector_range_behavior.CoS.connection_to(self.in_reach_precond, 6.0)
 
         # Close & In Reach Preconditions -> ReachFor (two preconditions needed)
-        self.close_precond.connection_to(self.reach_for_behavior.intention, 2.0)
-        self.in_reach_precond.connection_to(self.reach_for_behavior.intention, 2.0)
+        self.close_precond.connection_to(self.reach_for_behavior.intention, 3.0)
+        self.in_reach_precond.connection_to(self.reach_for_behavior.intention, 3.0)
+        self.reach_for_behavior.CoS.connection_to(self.reached_target_precond, 6.0)
+
 
     def execute_step(self, interactors, target_name, external_input=5.0):
         """Execute the find portion of the behavior chain."""
@@ -93,6 +114,7 @@ class FindGrabBehavior:
         self.found_precond.cache_prev()
         self.close_precond.cache_prev()
         self.in_reach_precond.cache_prev()
+        self.reached_target_precond.cache_prev()
 
         # Execute find behavior
         find_state = self.find_behavior.execute(interactors.perception, target_name, external_input)
@@ -101,6 +123,7 @@ class FindGrabBehavior:
         found_activation, found_activity = self.found_precond()
         close_activation, close_activity = self.close_precond()
         in_reach_activation, in_reach_activity = self.in_reach_precond()
+        reached_activation, reached_activity = self.reached_target_precond()
 
         # Execute move-to behavior with precondition input, only if found is active
         move_state = None
@@ -111,23 +134,11 @@ class FindGrabBehavior:
                 external_input = 0.0
             )
 
-        # Check if robot is close to object and object hasn't been moved yet
-        close_is_active = float(close_activity) > 0.7
-        if close_is_active and not self.object_moved and find_state['target_location'] is not None:
-            # Move the object to a new location
-            current_location = find_state['target_location']
-            new_location = torch.tensor(current_location.detach()) + torch.tensor([5.0, -2.0, 0.0])
-
-            # Update the perception interactor so find can detect the new location
-            interactors.perception.register_object(target_name, new_location)
-            self.object_moved = True
-            print(f"Object {target_name} moved to new location: {new_location.tolist()}")
-
         # Execute check-effector-range behavior
         in_reach_state = self.check_effector_range_behavior.execute(
             interactors.perception,
             find_state['target_location'],
-            effector_reach = 1.9,
+            effector_reach = 2.0,
             external_input = 0.0
         )
 
@@ -137,9 +148,22 @@ class FindGrabBehavior:
             reach_for_state = self.reach_for_behavior.execute(
                 interactors.gripper,
                 find_state['target_location'],
+                threshold=0.1,
                 external_input = 0.0
             )
 
+
+        # Check if robot is close to object and object hasn't been moved yet
+        close_is_active = float(close_activity) > 0.7
+        if close_is_active and not self.object_moved and find_state['target_location'] is not None:
+            # Move the object to a new location
+            current_location = find_state['target_location']
+            new_location = current_location.clone().detach() + torch.tensor([5.0, -2.0, 0.0])
+
+            # Update the perception interactor so find can detect the new location
+            interactors.perception.register_object(target_name, new_location)
+            self.object_moved = True
+            print(f"Object {target_name} moved to new location: {new_location.tolist()}")
 
         # Get current robot position from movement interactor
         robot_position = interactors.movement.get_position()
@@ -165,6 +189,11 @@ class FindGrabBehavior:
                     'activation': float(in_reach_activation.detach()),
                     'activity': float(in_reach_activity.detach()),
                     'active': float(in_reach_activity) > 0.7
+                },
+                'reached': {
+                    'activation': float(reached_activation.detach()),
+                    'activity': float(reached_activity.detach()),
+                    'active': float(reached_activity) > 0.7
                 },
             },
             'robot':{
@@ -212,7 +241,17 @@ if __name__ == "__main__":
            "reach_for_intention_activation": [],
            "reach_for_intention_activity": [],
            "reach_for_cos_activation": [],
-           "reach_for_cos_activity": []}
+           "reach_for_cos_activity": [],
+           "reached_precond_activation": [],
+           "reached_precond_activity": []}
+
+    # Create simulation visualizer
+    visualize = False
+    if visualize:
+        matplotlib.use('TkAgg')  # Use TkAgg backend which supports animation better
+        visualizer = RobotSimulationVisualizer()
+        simulation_states = []
+
 
     # External input activates find_grab behavior sequence
     external_input = 5.0
@@ -232,6 +271,10 @@ if __name__ == "__main__":
     for step in range(500):
         # Execute find behavior
         state = find_grab.execute_step(interactors, "cup", external_input)
+
+        # Update the visualizer
+        if visualize:
+            simulation_states.append(state)
 
         # Log activities for plotting
         log["intention_activation"].append(state['find']['intention_activation'])
@@ -276,11 +319,15 @@ if __name__ == "__main__":
             log["reach_for_intention_activity"].append(state['reach_for']['intention_activity'])
             log["reach_for_cos_activation"].append(state['reach_for']['cos_activation'])
             log["reach_for_cos_activity"].append(state['reach_for']['cos_activity'])
+            log["reached_precond_activation"].append(state['preconditions']['reached']['activation'])
+            log["reached_precond_activity"].append(state['preconditions']['reached']['activity'])
         else:
             log["reach_for_intention_activation"].append(-3.0)
             log["reach_for_intention_activity"].append(0.0)
             log["reach_for_cos_activation"].append(-3.0)
             log["reach_for_cos_activity"].append(0.0)
+            log["reached_precond_activation"].append(-3.0)
+            log["reached_precond_activity"].append(0.0)
 
         # Print status
         print(f"Step {step}: Active={state['find']['active']}, Completed={state['find']['completed']}")
@@ -297,62 +344,76 @@ if __name__ == "__main__":
         #           f" Close Precond Activation = {state['preconditions']['close']['activation']}")
 
         i += 1
-        # Stop if completed
-        if state['in_reach'] is not None and state['in_reach']['completed']:
-            done += 1
-            print(f"Reached target at step {step}!")
-
-        #if done >= 50:
-            #break
 
     # Plotting the activities of all nodes over time
-    ts = np.arange(i)
-    plt.figure(figsize=(8,4))
-    plt.plot(ts, log["intention_activation"], label="Intention Find (activation)")
-    plt.plot(ts, log["cos_activation"], label="CoS Find (activation)")
-    plt.plot(ts, log["intention_activity"], '--', label="Intention Find (activity)")
-    plt.plot(ts, log["cos_activity"], '--', label="CoS Find (activity)")
-    plt.plot(ts, log["found_precond_activation"], label="Found Precond (activation)")
-    plt.plot(ts, log["found_precond_activity"], '--', label="Found Precond (activity)")
-    plt.xlabel("Step")
-    plt.ylabel("Value")
-    plt.legend()
-    plt.tight_layout()
-    plt.show()
+    if not visualize:
+        ts = np.arange(i)
+        plt.figure(figsize=(8,4))
+        plt.plot(ts, log["intention_activation"], label="Intention Find (activation)")
+        plt.plot(ts, log["cos_activation"], label="CoS Find (activation)")
+        plt.plot(ts, log["intention_activity"], '--', label="Intention Find (activity)")
+        plt.plot(ts, log["cos_activity"], '--', label="CoS Find (activity)")
+        plt.plot(ts, log["found_precond_activation"], label="Found Precond (activation)")
+        plt.plot(ts, log["found_precond_activity"], '--', label="Found Precond (activity)")
+        plt.xlabel("Step")
+        plt.ylabel("Value")
+        plt.legend()
+        plt.tight_layout()
+        plt.show()
 
-    plt.figure(figsize=(8,4))
-    plt.plot(ts, log["move_intention_activation"], label="Intention Move (activation)")
-    plt.plot(ts, log["move_cos_activation"], label="CoS Move (activation)")
-    plt.plot(ts, log["move_intention_activity"], '--', label="Intention Move (activity)")
-    plt.plot(ts, log["move_cos_activity"], '--', label="CoS Move (activity)")
-    plt.plot(ts, log["close_precond_activation"], label="Close Precond (activation)")
-    plt.plot(ts, log["close_precond_activity"], '--', label="Close Precond (activity)")
-    plt.xlabel("Step")
-    plt.ylabel("Value")
-    plt.legend()
-    plt.tight_layout()
-    plt.show()
+        plt.figure(figsize=(8,4))
+        plt.plot(ts, log["move_intention_activation"], label="Intention Move (activation)")
+        plt.plot(ts, log["move_cos_activation"], label="CoS Move (activation)")
+        plt.plot(ts, log["move_intention_activity"], '--', label="Intention Move (activity)")
+        plt.plot(ts, log["move_cos_activity"], '--', label="CoS Move (activity)")
+        plt.plot(ts, log["close_precond_activation"], label="Close Precond (activation)")
+        plt.plot(ts, log["close_precond_activity"], '--', label="Close Precond (activity)")
+        plt.xlabel("Step")
+        plt.ylabel("Value")
+        plt.legend()
+        plt.tight_layout()
+        plt.show()
 
-    plt.figure(figsize=(8,4))
-    plt.plot(ts, log["reach_intention_activation"], label="Intention Reach (activation)")
-    plt.plot(ts, log["reach_cos_activation"], label="CoS Reach (activation)")
-    plt.plot(ts, log["reach_intention_activity"], '--', label="Intention Reach (activity)")
-    plt.plot(ts, log["reach_cos_activity"], '--', label="CoS Reach (activity)")
-    plt.plot(ts, log["in_reach_precond_activation"], label="In Reach Precond (activation)")
-    plt.plot(ts, log["in_reach_precond_activity"], '--', label="In Reach Precond (activity)")
-    plt.xlabel("Step")
-    plt.ylabel("Value")
-    plt.legend()
-    plt.tight_layout()
-    plt.show()
+        plt.figure(figsize=(8,4))
+        plt.plot(ts, log["reach_intention_activation"], label="Intention InReach (activation)")
+        plt.plot(ts, log["reach_cos_activation"], label="CoS InReach (activation)")
+        plt.plot(ts, log["reach_intention_activity"], '--', label="Intention InReach (activity)")
+        plt.plot(ts, log["reach_cos_activity"], '--', label="CoS InReach (activity)")
+        plt.plot(ts, log["in_reach_precond_activation"], label="In Reach Precond (activation)")
+        plt.plot(ts, log["in_reach_precond_activity"], '--', label="In Reach Precond (activity)")
+        plt.xlabel("Step")
+        plt.ylabel("Value")
+        plt.legend()
+        plt.tight_layout()
+        plt.show()
 
-    plt.figure(figsize=(8,4))
-    plt.plot(ts, log["reach_for_intention_activation"], label="Intention ReachFor (activation)")
-    plt.plot(ts, log["reach_for_cos_activation"], label="CoS ReachFor (activation)")
-    plt.plot(ts, log["reach_for_intention_activity"], '--', label="Intention ReachFor (activity)")
-    plt.plot(ts, log["reach_for_cos_activity"], '--', label="CoS ReachFor (activity)")
-    plt.xlabel("Step")
-    plt.ylabel("Value")
-    plt.legend()
-    plt.tight_layout()
-    plt.show()
+        plt.figure(figsize=(8,4))
+        plt.plot(ts, log["reach_for_intention_activation"], label="Intention ReachFor (activation)")
+        plt.plot(ts, log["reach_for_cos_activation"], label="CoS ReachFor (activation)")
+        plt.plot(ts, log["reach_for_intention_activity"], '--', label="Intention ReachFor (activity)")
+        plt.plot(ts, log["reach_for_cos_activity"], '--', label="CoS ReachFor (activity)")
+        plt.plot(ts, log["reached_precond_activation"], label="Reached Precond (activation)")
+        plt.plot(ts, log["reached_precond_activity"], '--', label="Reached Precond (activity)")
+        plt.xlabel("Step")
+        plt.ylabel("Value")
+        plt.legend()
+        plt.tight_layout()
+        plt.show()
+
+    # Create animation
+    if visualize:
+        ani = FuncAnimation(
+            visualizer.fig,  # Use visualizer's figure
+            lambda i: visualizer.update(simulation_states[min(i, len(simulation_states) - 1)]),
+            frames=len(simulation_states),
+            interval=100,
+            blit=False,
+            repeat=True
+        )
+
+        # Use this instead of plt.ion() and plt.show(block=True)
+        plt.rcParams['animation.html'] = 'html5'  # For better compatibility
+        manager = plt.get_current_fig_manager()
+        if hasattr(manager, 'window'):
+            manager.window.state('normal')  # Ensure window is not minimized
+        plt.show()  # This will open in a separate window, not in PyCharm's viewer

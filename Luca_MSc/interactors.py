@@ -46,7 +46,7 @@ class PerceptionInteractor:
             return True, self.objects[name]
         return False, None
 
-    def in_range(self, target_location, reach: float = 0.5) -> bool:
+    def in_range(self, target_location, reach: float = 2.0) -> bool:
         """Check if target is within a certain range in 3D space,
         based on the end-effector reach."""
         if target_location is None:
@@ -149,17 +149,32 @@ class GripperInteractor:
 
     def __init__(
             self,
-            max_speed = 0.1,        # max speed per step
+            max_speed = 0.1,            # max speed per step
             gain = 1.0,
-            stop_threshold = 0.01   # distance to consider "arrived"
+            stop_threshold = 0.01,      # distance to consider "arrived"
+            max_reach = 2.0,            # max reach from robot base
+            get_robot_position = None   # anchor arm to robot base
         ):
-        self.gripper_position = torch.tensor([0.0, 0.0, 0.0])
         self.max_speed = max_speed
         self.gain = gain
         self.stop_threshold = stop_threshold
+        self.max_reach = max_reach
+
+        # Robot position reference
+        if get_robot_position is None:
+            raise ValueError("GripperInteractor requires a get_robot_position callable")
+        self._get_robot_position = get_robot_position
+
+        # Initial gripper position (at robot base)
+        robot_position = self._get_robot_position().clone()
+        self.gripper_offset = torch.tensor([0.0, 0.0, 0.5]) # gripper is slightly above base
+        self.gripper_position = robot_position + self.gripper_offset
 
     def get_position(self):
         """Get the current gripper position."""
+        robot_position = self._get_robot_position()
+        self.gripper_position = robot_position + self.gripper_offset
+
         return self.gripper_position.clone()
 
     def calculate_distance(self, target_location):
@@ -200,18 +215,36 @@ class GripperInteractor:
         step_mag = min(self.max_speed, self.gain * distance, distance)
         step_vec = direction * step_mag
 
+        # Calculate new potential position
+        robot_position = self._get_robot_position()
+        new_offset = self.gripper_offset + step_vec
+
+        # Check if within reach constraints
+        if torch.norm(new_offset) <= self.max_reach:
+            self.gripper_offset = new_offset
+        else:
+            # If beyond reach, project back to max reach sphere
+            normalized_offset = new_offset / torch.norm(new_offset)
+            self.gripper_offset = normalized_offset * self.max_reach
+
         # Update pose (3D)
-        self.gripper_position += step_vec
+        self.gripper_position = robot_position + self.gripper_offset
 
         motor_cmd = step_vec
         return motor_cmd
+
+    def reset(self):
+        """Reset gripper state."""
+        robot_position = self._get_robot_position().clone()
+        self.gripper_offset = torch.tensor([0.0, 0.0, 0.5]) # gripper is slightly above base
+        self.gripper_position = robot_position + self.gripper_offset
 
 class RobotInteractors:
     """Facade that provides access to all interactors."""
 
     def __init__(self):
         self.movement = MovementInteractor()
-        self.gripper = GripperInteractor()
+        self.gripper = GripperInteractor(get_robot_position=self.movement.get_position)
         self.perception = PerceptionInteractor(get_robot_position=self.movement.get_position)
 
     def reset(self):
