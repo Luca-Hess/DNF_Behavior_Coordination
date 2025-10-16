@@ -120,7 +120,7 @@ class FindGrabBehavior:
         # Execute find behavior
         find_state = self.find_behavior.execute(interactors.perception, target_name, external_input)
 
-        # Process the found precondition node (no external input)
+        # Process the precondition nodes (no external input)
         found_activation, found_activity = self.found_precond()
         close_activation, close_activity = self.close_precond()
         in_reach_activation, in_reach_activity = self.in_reach_precond()
@@ -265,6 +265,7 @@ if __name__ == "__main__":
         #           f" Close Precond Activation = {state['preconditions']['close']['activation']}")
 
         i += 1
+
 
     # Plotting the activities of all nodes over time
     if not visualize:

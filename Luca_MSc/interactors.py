@@ -152,13 +152,23 @@ class GripperInteractor:
             max_speed = 0.1,            # max speed per step
             gain = 1.0,
             stop_threshold = 0.01,      # distance to consider "arrived"
+            orient_threshold = 0.01,    # radians to consider "oriented"
             max_reach = 2.0,            # max reach from robot base
-            get_robot_position = None   # anchor arm to robot base
+            get_robot_position = None,  # anchor arm to robot base
+            is_open = False,            # gripper state
+            has_object_state = False          # whether gripper is holding an object
         ):
         self.max_speed = max_speed
         self.gain = gain
         self.stop_threshold = stop_threshold
+        self.orient_threshold = orient_threshold
         self.max_reach = max_reach
+        self.gripper_orientation = torch.tensor([0.0, 0.0, 0.0])
+        self.normalize_orientation()
+
+        self.is_open = is_open
+        self._has_object = has_object_state
+        self.wait_counter = 0  # for simulating object grasp delay
 
         # Robot position reference
         if get_robot_position is None:
@@ -170,12 +180,94 @@ class GripperInteractor:
         self.gripper_offset = torch.tensor([0.0, 0.0, 0.5]) # gripper is slightly above base
         self.gripper_position = robot_position + self.gripper_offset
 
+
+    def normalize_orientation(self):
+        """Normalize orientation angles to the range [-π, π]."""
+        self.gripper_orientation = (self.gripper_orientation + torch.pi) % (2 * torch.pi) - torch.pi
+
     def get_position(self):
         """Get the current gripper position."""
         robot_position = self._get_robot_position()
         self.gripper_position = robot_position + self.gripper_offset
 
         return self.gripper_position.clone()
+
+    def get_orientation(self):
+        """ Get the current gripper orientation."""
+        return self.gripper_orientation.clone()
+
+    def is_oriented(self, target_orientation, thresh: float = 0.01) -> bool:
+        """Orientation arrival test within threshold (radians)."""
+        if target_orientation is None:
+            return False
+        threshold = self.orient_threshold if thresh is None else float(thresh)
+
+        # Handle angle wrapping for each component (assuming Euler angles)
+        orientation_diff = torch.abs(target_orientation - self.gripper_orientation)
+        # For each angle, take the shorter path around the circle
+        orientation_diff = torch.min(orientation_diff, 2 * torch.pi - orientation_diff)
+
+        return bool(torch.all(orientation_diff <= threshold))
+
+    def is_open(self):
+        """Check if gripper is open."""
+        return self.is_open
+
+    def open_gripper(self):
+        """Open the gripper."""
+        self.is_open = True
+
+        return self.is_open
+
+    def close_gripper(self):
+        """Close the gripper."""
+        self.is_open = False
+
+        return self.is_open
+
+    def has_object(self):
+        """Check if gripper is holding an object (closed)."""
+        # Return True after some time if gripper is closed
+        print("Gripper closed, checking for object...")
+        if not self.is_open:
+            self.wait_counter += 1
+            if self.wait_counter >= 10:
+                self._has_object = True
+        else:
+            # Reset counter if gripper opens
+            self.wait_counter = 0
+            self._has_object = False
+
+        return self._has_object
+
+
+    def gripper_rotate_towards(self, target_orientation):
+        """
+        Rotate gripper towards target orientation.
+        Returns the applied rotation command tensor [droll, dpitch, dyaw] or None if arrived/invalid.
+        """
+        if target_orientation is None:
+            return None
+        if self.is_oriented(target_orientation):
+            return None
+
+        delta = target_orientation - self.gripper_orientation
+
+        # Normalize angles to [-π, π] to ensure shortest path
+        delta = (delta + torch.pi) % (2 * torch.pi) - torch.pi
+
+        # Proportional step with clamping
+        rotation_step = torch.clamp(self.gain * delta, -self.max_speed, self.max_speed)
+
+        # Update orientation
+        self.gripper_orientation += rotation_step
+
+        # Normalize orientation to [-π, π] range after update
+        self.gripper_orientation = (self.gripper_orientation + torch.pi) % (2 * torch.pi) - torch.pi
+
+        motor_cmd = rotation_step
+
+        return motor_cmd
 
     def calculate_distance(self, target_location):
         """Calculate distance from gripper to target."""

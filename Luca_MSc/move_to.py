@@ -33,15 +33,14 @@ class MoveToBehavior(ElementaryBehavior):
         arrived = bool(interactor.is_at(target_location, thresh=0.1))
 
         # Prepare inputs for nodes
-        intention_input = external_input
         cos_input = 5.0 if arrived else 0.0
 
         # Process behavior control
-        state = self.forward(intention_input, cos_input)
+        state = self.forward(external_input, cos_input)
 
         # Generate motor commands if active
         motor_cmd = None
-        if float(state.get('intention_activity', 0.0)) > 0.0 and not arrived:
+        if state['active'] and not arrived:
             motor_cmd = interactor.move_towards(target_location)
 
         # Diagnostics/echo

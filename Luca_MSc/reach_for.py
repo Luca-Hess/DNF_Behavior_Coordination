@@ -30,7 +30,7 @@ class ReachForBehavior(ElementaryBehavior):
             state['motor_commands'] = None
             return state
 
-        # Grippe arrival at object check based on data from interactor, with specified "arrival" threshold
+        # Gripper arrival at object check based on data from interactor, with specified "arrival" threshold
         gripper_arrived = bool(interactor.gripper_is_at(target_location, thresh=threshold))
 
         # Prepare inputs for nodes
@@ -41,10 +41,10 @@ class ReachForBehavior(ElementaryBehavior):
 
         # Generate motor commands if active
         motor_cmd = None
-        if bool(state.get('active', False)) and not gripper_arrived:
+        if state['active'] and not gripper_arrived:
             motor_cmd = interactor.gripper_move_towards(target_location)
 
-        # Diagnostics/echo
+        # Logs
         state['gripper_arrived'] = gripper_arrived
         state['motor_commands'] = (
             motor_cmd.tolist() if hasattr(motor_cmd, "tolist") else motor_cmd
