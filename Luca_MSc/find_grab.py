@@ -1,5 +1,4 @@
 import torch
-import numpy as np
 import matplotlib
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
@@ -12,6 +11,7 @@ from find import FindBehavior
 from move_to import MoveToBehavior
 from check_effector_range import CheckEffectorRange
 from reach_for import ReachForBehavior
+from grab_behavior_compound import GrabBehavior
 
 from helper_functions import move_object, initalize_log, update_log, plot_logs
 
@@ -27,6 +27,7 @@ class FindGrabBehavior:
         self.move_to_behavior = MoveToBehavior()
         self.check_effector_range_behavior = CheckEffectorRange()
         self.reach_for_behavior = ReachForBehavior()
+        self.grab_behavior = GrabBehavior()
 
         # Flag for object movement - simulating object changing location!
         self.object_moved = False
@@ -72,6 +73,16 @@ class FindGrabBehavior:
             self_connection_w0=2
         )
 
+        # Robot has grabbed the target object
+        self.has_grabbed_precond = Field(
+            shape=(),
+            time_step=5.0,
+            time_scale=100.0,
+            resting_level=-3.0,
+            beta=20.0,
+            self_connection_w0=2
+        )
+
         # Register buffer for prev state
         self.found_precond.register_buffer(
             "g_u_prev",
@@ -88,6 +99,10 @@ class FindGrabBehavior:
         self.reached_target_precond.register_buffer(
             "g_u_prev",
             torch.zeros_like(self.reached_target_precond.g_u)
+        )
+        self.has_grabbed_precond.register_buffer(
+            "g_u_prev",
+            torch.zeros_like(self.has_grabbed_precond.g_u)
         )
 
         # Connections
@@ -107,6 +122,10 @@ class FindGrabBehavior:
         self.in_reach_precond.connection_to(self.reach_for_behavior.intention, 3.0)
         self.reach_for_behavior.CoS.connection_to(self.reached_target_precond, 6.0)
 
+        # Reached Target Precondition -> Grab Behavior
+        self.reached_target_precond.connection_to(self.grab_behavior.intention, 6.0)
+        self.grab_behavior.CoS.connection_to(self.has_grabbed_precond, 6.0)
+
 
     def execute_step(self, interactors, target_name, external_input=5.0):
         """Execute the find portion of the behavior chain."""
@@ -116,6 +135,7 @@ class FindGrabBehavior:
         self.close_precond.cache_prev()
         self.in_reach_precond.cache_prev()
         self.reached_target_precond.cache_prev()
+        self.has_grabbed_precond.cache_prev()
 
         # Execute find behavior
         find_state = self.find_behavior.execute(interactors.perception, target_name, external_input)
@@ -125,6 +145,7 @@ class FindGrabBehavior:
         close_activation, close_activity = self.close_precond()
         in_reach_activation, in_reach_activity = self.in_reach_precond()
         reached_activation, reached_activity = self.reached_target_precond()
+        has_grabbed_activation, has_grabbed_activity = self.has_grabbed_precond()
 
         # Execute move-to behavior with precondition input, only if found is active
         move_state = None
@@ -153,6 +174,16 @@ class FindGrabBehavior:
                 external_input = 0.0
             )
 
+        # Execute grab behavior
+        grab_state = None
+        if find_state['target_location'] is not None:
+            grab_state = self.grab_behavior.execute(
+                interactors,
+                target_name,
+                find_state['target_location'],  # Example target orientation for gripper
+                external_input = 0.0
+            )
+
 
         # Check if robot is close to object and object hasn't been moved yet
         close_is_active = float(close_activity) > 0.7
@@ -169,6 +200,7 @@ class FindGrabBehavior:
             'move': move_state,
             'in_reach': in_reach_state,
             'reach_for': reach_for_state,
+            'grab': grab_state,
             'preconditions': {
                 'found': {
                     'activation': float(found_activation.detach()),
@@ -190,6 +222,11 @@ class FindGrabBehavior:
                     'activity': float(reached_activity.detach()),
                     'active': float(reached_activity) > 0.7
                 },
+                'has_grabbed': {
+                    'activation': float(has_grabbed_activation.detach()),
+                    'activity': float(has_grabbed_activity.detach()),
+                    'active': float(has_grabbed_activity) > 0.7
+                }
             },
             'robot':{
                 'position': robot_position.tolist()
@@ -230,7 +267,9 @@ if __name__ == "__main__":
 
     # Create interactors with a test object
     interactors = RobotInteractors()
-    interactors.perception.register_object("cup", torch.tensor([5.2, 10.5, 1.8]))
+    interactors.perception.register_object(name="cup",
+                                           location=torch.tensor([5.2, 10.5, 1.8]),
+                                           angle=torch.tensor([0.0, -1.0, 0.0]))
 
     # Create the find-grab behavior
     find_grab = FindGrabBehavior()
@@ -239,7 +278,7 @@ if __name__ == "__main__":
     print("Starting find behavior for 'cup'...")
     i = 0
     done = 0
-    for step in range(500):
+    for step in range(1000):
         # Execute find behavior
         state = find_grab.execute_step(interactors, "cup", external_input)
 
@@ -251,12 +290,12 @@ if __name__ == "__main__":
         update_log(log, state)
 
         # Print status
-        print(f"Step {step}: Active={state['find']['active']}, Completed={state['find']['completed']}")
-        print(f"  Found={state['find']['target_found']}, "
-              f"Location={state['find']['target_location']}")
-        print(f"  Intention={state['find']['intention_activity']:.2f}, "
-              f"CoS={state['find']['cos_activity']:.2f}, "
-              f"Found Precond={state['preconditions']['found']['activity']:.2f}")
+        #print(f"Step {step}: Active={state['find']['active']}, Completed={state['find']['completed']}")
+        # print(f"  Found={state['find']['target_found']}, "
+        #       f"Location={state['find']['target_location']}")
+        # print(f"  Intention={state['find']['intention_activity']:.2f}, "
+        #       f"CoS={state['find']['cos_activity']:.2f}, "
+        #       f"Found Precond={state['preconditions']['found']['activity']:.2f}")
 
         # print(f"Active Movement={state['move']['active'] if state['move'] else False}, Completed Movement={state['move']['completed'] if state['move'] else False}")
         # if state['move'] is not None:

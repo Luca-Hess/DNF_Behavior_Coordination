@@ -30,7 +30,7 @@ class CloseGripperBehavior(ElementaryBehavior):
 
         # Generate motor commands if active
         motor_cmd = None
-        if state['active'] and not is_closed:
+        if float(state.get('intention_activity', 0.0)) > 0.0 and not is_closed:
             motor_cmd = gripper_interactor.close_gripper()
 
         # Store status
@@ -39,7 +39,7 @@ class CloseGripperBehavior(ElementaryBehavior):
             motor_cmd.tolist() if hasattr(motor_cmd, "tolist") else motor_cmd
         )
 
-        self._last_active = state['active']
+        self._last_active = float(state.get('intention_activity', 0.0)) > 0.0
 
         return state
 

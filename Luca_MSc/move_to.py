@@ -9,6 +9,7 @@ class MoveToBehavior(ElementaryBehavior):
 
     def __init__(self, field_params=None):
         super().__init__(field_params)
+        self.cos_input = 0.0
 
     def execute(self, interactor, target_location, external_input=0.0):
         """
@@ -29,25 +30,31 @@ class MoveToBehavior(ElementaryBehavior):
             state['motor_commands'] = None
             return state
 
-        # Arrival check based on data from interactor, with specified "arrival" threshold
-        arrived = bool(interactor.is_at(target_location, thresh=0.1))
+        state = self.forward(external_input, self.cos_input)
 
-        # Prepare inputs for nodes
-        cos_input = 5.0 if arrived else 0.0
+        active = float(state.get('intention_activity', 0.0)) > 0.0
 
-        # Process behavior control
-        state = self.forward(external_input, cos_input)
+        if active:
+            # Arrival check based on data from interactor, with specified "arrival" threshold
+            arrived = bool(interactor.is_at(target_location, thresh=0.1))
 
-        # Generate motor commands if active
-        motor_cmd = None
-        if state['active'] and not arrived:
-            motor_cmd = interactor.move_towards(target_location)
+            # Prepare inputs for nodes
+            self.cos_input = 5.0 if arrived else 0.0
 
-        # Diagnostics/echo
-        state['arrived'] = arrived
-        state['motor_commands'] = (
-            motor_cmd.tolist() if hasattr(motor_cmd, "tolist") else motor_cmd
-        )
+
+            # Generate motor commands if active
+            motor_cmd = None
+            if not arrived:
+                motor_cmd = interactor.move_towards(target_location)
+
+            # Update state
+            state['arrived'] = arrived
+            state['motor_commands'] = (
+                motor_cmd.tolist() if hasattr(motor_cmd, "tolist") else motor_cmd
+            )
+        else:
+            state['arrived'] = False
+            state['motor_commands'] = None
 
         return state
 

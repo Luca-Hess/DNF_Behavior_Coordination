@@ -28,7 +28,7 @@ class FindBehavior(ElementaryBehavior):
         Returns:
             dict: Behavior state and found target information
         """
-        # Try to locate the target using the interactor only if the behavior is active
+        # Try to locate the target using the interactor only if the behavior has been activated
         if self._last_active:
             self._started_searching = True
 
@@ -54,7 +54,7 @@ class FindBehavior(ElementaryBehavior):
         state['target_location'] = self.target_location
 
         # Remember last active state
-        self._last_active = bool(state.get('active', False))
+        self._last_active = float(state.get('intention_activity', 0.0)) > 0.0
 
         return state
 
@@ -63,4 +63,4 @@ class FindBehavior(ElementaryBehavior):
         super().reset()
         self.target_location = None
         self._last_active = False
-        self._sensing_latch = False
+        self._started_searching = False

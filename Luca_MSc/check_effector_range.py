@@ -24,7 +24,7 @@ class CheckEffectorRange(ElementaryBehavior):
         Returns:
             dict: Behavior state
         """
-        # Try to check the range using the interactor only if the behavior is active
+        # Try to check the range using the interactor only if the behavior has been activated before
         if self._last_active:
             self._checked_range = True
 
@@ -42,7 +42,7 @@ class CheckEffectorRange(ElementaryBehavior):
         # Store range status
         state['in_range'] = in_range
 
-        self._last_active = bool(state.get('active', False))
+        self._last_active = float(state.get('intention_activity', 0.0)) > 0.0
 
         return state
 

@@ -21,9 +21,14 @@ class PerceptionInteractor:
         self.in_tracking_loss = False
         self.tracking_loss_remaining = 0
 
-    def register_object(self, name, location):
-        """Register a known object with its location."""
-        self.objects[name] = location
+    def register_object(self, name, location, angle):
+        """Register a known object with its location and orientation (for grabbing)."""
+        if name not in self.objects:
+            self.objects[name] = {}
+
+        self.objects[name]['location'] = location
+        self.objects[name]['angle'] = angle
+
 
     def find_object(self, name):
         """Attempt to find an object by name."""
@@ -43,8 +48,14 @@ class PerceptionInteractor:
 
         # Normal detection logic
         if name in self.objects and self.search_attempts >= 3:
-            return True, self.objects[name]
+            return True, self.objects[name]['location']
         return False, None
+
+    def find_object_angle(self, name):
+        """Get the orientation of a known object by name."""
+        if name in self.objects and 'angle' in self.objects[name]:
+            return self.objects[name]['angle']
+        return None
 
     def in_range(self, target_location, reach: float = 2.0) -> bool:
         """Check if target is within a certain range in 3D space,
