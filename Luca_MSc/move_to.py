@@ -30,33 +30,28 @@ class MoveToBehavior(ElementaryBehavior):
             state['motor_commands'] = None
             return state
 
-        state = self.forward(external_input, self.cos_input)
+        # Arrival check based on data from interactor, with specified "arrival" threshold
+        arrived = bool(interactor.is_at(target_location, thresh=0.1))
 
-        active = float(state.get('intention_activity', 0.0)) > 0.0
+        # Prepare inputs for nodes
+        cos_input = 5.0 if arrived else 0.0
 
-        if active:
-            # Arrival check based on data from interactor, with specified "arrival" threshold
-            arrived = bool(interactor.is_at(target_location, thresh=0.1))
+        # Process behavior control
+        state = self.forward(external_input, cos_input)
 
-            # Prepare inputs for nodes
-            self.cos_input = 5.0 if arrived else 0.0
+        # Generate motor commands if active
+        motor_cmd = None
+        if float(state.get('intention_activity', 0.0)) > 0.0 and not arrived:
+            motor_cmd = interactor.move_towards(target_location)
 
-
-            # Generate motor commands if active
-            motor_cmd = None
-            if not arrived:
-                motor_cmd = interactor.move_towards(target_location)
-
-            # Update state
-            state['arrived'] = arrived
-            state['motor_commands'] = (
-                motor_cmd.tolist() if hasattr(motor_cmd, "tolist") else motor_cmd
-            )
-        else:
-            state['arrived'] = False
-            state['motor_commands'] = None
+        # Diagnostics/echo
+        state['arrived'] = arrived
+        state['motor_commands'] = (
+            motor_cmd.tolist() if hasattr(motor_cmd, "tolist") else motor_cmd
+        )
 
         return state
+
 
     def reset(self):
         super().reset()

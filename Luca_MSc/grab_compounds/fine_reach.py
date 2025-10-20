@@ -11,34 +11,33 @@ class FineReachBehavior(ElementaryBehavior):
 
     def execute(self, gripper_interactor, target_location, fine_threshold=0.05, external_input=0.0):
         """Execute fine reaching behavior."""
-        # Process behavior to determine activity
-        state = self.forward(external_input, self.cos_input)
-
-        active = float(state.get('intention_activity', 0.0)) > 0.0
-
-        if active and target_location is not None:
-            distance = gripper_interactor.calculate_distance(target_location)
-
-            # Check if we've reached the fine threshold - now truly at the object
-            if distance <= fine_threshold:
-                self.cos_input = 5.0  # Strong input to CoS
-
-            # If not there yet, move towards target location
-            if distance > fine_threshold:
-                gripper_interactor.max_speed = 0.05  # Slow down for fine movements
-                motor_cmd = gripper_interactor.gripper_move_towards(target_location)
-
-                # Update state
-                state['distance'] = distance
-                state['motor_commands'] = motor_cmd
-
-            else:
-                state['distance'] = distance
-                state['motor_commands'] = None
-
-        else:
+        # If no target, stay quiescent
+        if target_location is None:
+            state = self.forward(0.0, 0.0)
             state['distance'] = None
             state['motor_commands'] = None
+            return state
+
+        # Sync pose to ensure accurate distance calculation
+        gripper_interactor.get_position()
+
+        gripper_arrived = bool(gripper_interactor.gripper_is_at(target_location, thresh=fine_threshold))
+
+        # Prepare inputs for nodes
+        cos_input = 5.0 if gripper_arrived else 0.0
+
+        # Process behavior control
+        state = self.forward(external_input, cos_input)
+
+        # Generate motor commands if active
+        motor_cmd = None
+        if float(state.get('intention_activity', 0.0)) > 0.0 and not gripper_arrived:
+            gripper_interactor.max_speed = 0.05  # Slow down for fine movement
+            motor_cmd = gripper_interactor.gripper_move_towards(target_location)
+
+        # Diagnostics/echo
+        state['distance'] = gripper_interactor.calculate_distance(target_location)
+        state['motor_commands'] = motor_cmd
 
         return state
 

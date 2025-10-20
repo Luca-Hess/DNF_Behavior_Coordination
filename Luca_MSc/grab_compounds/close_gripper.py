@@ -35,9 +35,7 @@ class CloseGripperBehavior(ElementaryBehavior):
 
         # Store status
         state['gripper_state'] = 'closed' if is_closed else 'open'
-        state['motor_commands'] = (
-            motor_cmd.tolist() if hasattr(motor_cmd, "tolist") else motor_cmd
-        )
+        state['motor_commands'] = motor_cmd
 
         self._last_active = float(state.get('intention_activity', 0.0)) > 0.0
 

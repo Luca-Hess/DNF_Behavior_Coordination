@@ -31,34 +31,28 @@ class ReachForBehavior(ElementaryBehavior):
             state['motor_commands'] = None
             return state
 
-        state = self.forward(external_input, self.cos_input)
+        # Grippe arrival at object check based on data from interactor, with specified "arrival" threshold
+        gripper_arrived = bool(interactor.gripper_is_at(target_location, thresh=threshold))
 
-        active = float(state.get('intention_activity', 0.0)) > 0.0
+        # Prepare inputs for nodes
+        cos_input = 5.0 if gripper_arrived else 0.0
 
-        if active:
-            # Gripper arrival at object check based on data from interactor, with specified "arrival" threshold
-            gripper_arrived = bool(interactor.gripper_is_at(target_location, thresh=threshold))
+        # Process behavior control
+        state = self.forward(external_input, cos_input)
 
-            # Prepare inputs for nodes
-            self.cos_input = 5.0 if gripper_arrived else 0.0
+        # Generate motor commands if active
+        motor_cmd = None
+        if bool(state.get('active', False)) and not gripper_arrived:
+            motor_cmd = interactor.gripper_move_towards(target_location)
 
-            # Process behavior control
-
-            # Generate motor commands if active
-            motor_cmd = None
-            if float(state.get('intention_activity', 0.0)) > 0.0 and not gripper_arrived:
-                motor_cmd = interactor.gripper_move_towards(target_location)
-
-            # Logs
-            state['gripper_arrived'] = gripper_arrived
-            state['motor_commands'] = (
-                motor_cmd.tolist() if hasattr(motor_cmd, "tolist") else motor_cmd
-            )
-        else:
-            state['gripper_arrived'] = False
-            state['motor_commands'] = None
+        # Diagnostics/echo
+        state['gripper_arrived'] = gripper_arrived
+        state['motor_commands'] = (
+            motor_cmd.tolist() if hasattr(motor_cmd, "tolist") else motor_cmd
+        )
 
         return state
+
 
     def reset(self):
         super().reset()

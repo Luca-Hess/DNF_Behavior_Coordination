@@ -15,6 +15,11 @@ class RobotSimulationVisualizer:
         self.ax = self.fig.add_subplot(111, projection='3d')
         self.floor_size = floor_size
 
+        self.target_tube = None
+        self.target_floor_marker = None
+        self.drop_off_tube = None
+        self.drop_off_floor_marker = None
+
         # Better camera position for initial view
         self.ax.view_init(elev=30, azim=30)  # Set camera angle
 
@@ -39,10 +44,11 @@ class RobotSimulationVisualizer:
         self.robot = None
         self.gripper = None
         self.target_obj = None
+        self.drop_off = None
 
         # Activity indicators (moved to a visible corner)
         indicator_z = 0.5  # Raise indicators slightly above floor
-        indicator_spacing = 1.0
+        indicator_spacing = 2.0
         start_x = -floor_size / 2 + 1
         start_y = -floor_size / 2 + 1
 
@@ -52,7 +58,11 @@ class RobotSimulationVisualizer:
             'move': self._create_indicator(start_x + indicator_spacing * 2, start_y, 0.5, 'Move', indicator_z),
             'close': self._create_indicator(start_x + indicator_spacing * 3, start_y, 0.5, 'Close', indicator_z),
             'in_reach': self._create_indicator(start_x + indicator_spacing * 4, start_y, 0.5, 'In Reach', indicator_z),
-            'reach_for': self._create_indicator(start_x + indicator_spacing * 5, start_y, 0.5, 'Reach For', indicator_z)
+            'reach_for': self._create_indicator(start_x + indicator_spacing * 5, start_y, 0.5, 'Reach For', indicator_z),
+            'reached': self._create_indicator(start_x + indicator_spacing * 6, start_y, 0.5, 'Reached', indicator_z),
+            'grab': self._create_indicator(start_x + indicator_spacing * 7, start_y, 0.5, 'Grab', indicator_z),
+            'grabbed': self._create_indicator(start_x + indicator_spacing * 8, start_y, 0.5, 'Grabbed', indicator_z),
+            'transport': self._create_indicator(start_x + indicator_spacing * 9, start_y, 0.5, 'Transport', indicator_z)
         }
 
         # Equal aspect ratio for better visualization
@@ -70,16 +80,32 @@ class RobotSimulationVisualizer:
 
         return circle
 
-    def update(self, state):
+    def update(self, state, interactors=None):
         """Update the visualization with the current state."""
         # Extract positions from state
         robot_position = state.get('robot', {}).get('position', [0, 0, 0])
         gripper_position = state.get('gripper', {}).get('position', [0, 0, 0])
         target_position = None
+        drop_off_position = None
 
         # Get target position if available
         if state.get('find', {}).get('target_location') is not None:
             target_position = state['find']['target_location'].tolist()
+
+        # Get drop-off position if available
+        if interactors is not None and "drop_off" in interactors.perception.objects:
+            drop_off_position = interactors.perception.objects["drop_off"]['location'].tolist()
+
+            if self.drop_off is None:
+                self.drop_off = self.ax.plot([drop_off_position[0]],
+                                             [drop_off_position[1]],
+                                             [drop_off_position[2]],
+                                             'o', markersize=8, color='green')[0]
+                self._create_drop_off_tube(drop_off_position)
+            else:
+                self.drop_off.set_data([drop_off_position[0]], [drop_off_position[1]])
+                self.drop_off.set_3d_properties([drop_off_position[2]])
+                self._update_drop_off_tube(drop_off_position)
 
         # Create or update robot visualization
         if self.robot is None:
@@ -113,6 +139,24 @@ class RobotSimulationVisualizer:
                 # Update tube position
                 self._update_tube(target_position)
 
+        # Create or update drop-off object and its tube
+        if drop_off_position is not None:
+            if self.drop_off is None:
+                self.drop_off = self.ax.plot([drop_off_position[0]],
+                                             [drop_off_position[1]],
+                                             [drop_off_position[2]],
+                                             'o', markersize=8, color='green')[0]
+
+                # Create the tube for drop-off
+                self._create_drop_off_tube(drop_off_position)
+            else:
+                # Update drop-off position (FIXED)
+                self.drop_off.set_data([drop_off_position[0]], [drop_off_position[1]])
+                self.drop_off.set_3d_properties([drop_off_position[2]])
+
+                # Update tube position
+                self._update_drop_off_tube(drop_off_position)
+
         # Update indicator lights based on state
         self._update_indicators(state)
 
@@ -127,6 +171,12 @@ class RobotSimulationVisualizer:
         artists.extend(list(self.indicators.values()))
         if hasattr(self, 'tube') and self.tube is not None:
             artists.append(self.tube)
+        if self.drop_off is not None:
+            artists.append(self.drop_off)
+        if hasattr(self, 'drop_off_tube') and self.drop_off_tube is not None:
+            artists.append(self.drop_off_tube)
+        if hasattr(self, 'drop_off_floor_marker') and self.drop_off_floor_marker is not None:
+            artists.append(self.drop_off_floor_marker)
 
         return artists
 
@@ -209,6 +259,7 @@ class RobotSimulationVisualizer:
 
         self.ax.plot_surface(x_points, y_points, z_points, color='red', alpha=0.7)
 
+
     def _update_target_object(self, position):
         """Update the target object (cube)."""
         if self.target_obj is not None:
@@ -241,6 +292,38 @@ class RobotSimulationVisualizer:
         self.target_obj = Poly3DCollection(faces, alpha=0.5, linewidth=1, edgecolor='k')
         self.target_obj.set_facecolor('orange')
         self.ax.add_collection3d(self.target_obj)
+
+    def _create_drop_off_tube(self, position):
+        """Create a transparent tube from drop-off point to floor."""
+        x, y, z = position
+        # Draw a line from object to floor
+        self.drop_off_tube = self.ax.plot([x, x], [y, y], [z, 0],
+                                          linestyle='--', linewidth=2,
+                                          color='green', alpha=0.4)[0]
+
+        # Add a small circle on the floor to mark position
+        radius = 0.3
+        theta = np.linspace(0, 2 * np.pi, 32)
+        circle_x = x + radius * np.cos(theta)
+        circle_y = y + radius * np.sin(theta)
+        circle_z = np.zeros_like(theta)
+        self.drop_off_floor_marker = self.ax.plot(circle_x, circle_y, circle_z,
+                                                  color='green', alpha=0.5)[0]
+
+    def _update_drop_off_tube(self, position):
+        """Update the drop-off tube position."""
+        x, y, z = position
+        self.drop_off_tube.set_data([x, x], [y, y])
+        self.drop_off_tube.set_3d_properties([z, 0])
+
+        # Update floor marker
+        radius = 0.3
+        theta = np.linspace(0, 2 * np.pi, 32)
+        circle_x = x + radius * np.cos(theta)
+        circle_y = y + radius * np.sin(theta)
+        circle_z = np.zeros_like(theta)
+        self.drop_off_floor_marker.set_data(circle_x, circle_y)
+        self.drop_off_floor_marker.set_3d_properties(circle_z)
 
     def _update_indicators(self, state):
         """Update indicator lights based on state"""
@@ -279,3 +362,27 @@ class RobotSimulationVisualizer:
             self.indicators['reach_for'].set_color('green')
         else:
             self.indicators['reach_for'].set_color('gray')
+
+        # Update reached indicator
+        if 'preconditions' in state and state['preconditions']['reached'] and state['preconditions']['reached']['active']:
+            self.indicators['reached'].set_color('green')
+        else:
+            self.indicators['reached'].set_color('gray')
+
+        # Update orient indicator
+        if state['grab'] and 'grab' in state['grab'] and state['grab']['grab']['active']:
+            self.indicators['grab'].set_color('green')
+        else:
+            self.indicators['grab'].set_color('gray')
+
+        # Update grab indicator
+        if 'preconditions' in state and state['preconditions']['has_grabbed'] and state['preconditions']['has_grabbed']['active']:
+            self.indicators['grabbed'].set_color('green')
+        else:
+            self.indicators['grabbed'].set_color('gray')
+
+        # Update transport indicator
+        if 'transport' in state and state['transport'] and state['transport']['active']:
+            self.indicators['transport'].set_color('green')
+        else:
+            self.indicators['transport'].set_color('gray')

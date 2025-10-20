@@ -10,25 +10,31 @@ class HasObjectBehavior(ElementaryBehavior):
         self._checked_object = False
         self.cos_input = 0.0
 
-    def execute(self, gripper_interactor, external_input=0.0):
+    def execute(self, interactors, target_location=None, external_input=0.0):
         """Check if the gripper is holding an object."""
-        # Process behavior to determine activity
-        state = self.forward(external_input, self.cos_input)
+        if self._last_active:
+            self._checked_object = True
 
-        active = float(state.get('intention_activity', 0.0)) > 0.0
-
-        if active:
-            # Check if gripper has an object
-            has_object = gripper_interactor.has_object
-            self.cos_input = 5.0 if has_object else 0.0
+        if self._checked_object:
+            has_object = interactors.gripper.has_object(interactors.gripper.gripper_position, target_location)
         else:
             has_object = False
 
+        # Use object grabbed status for CoS
+        cos_input = 5.0 if has_object else 0.0
+
+        # Process behavior control
+        state = self.forward(external_input, cos_input)
+
         # Store object holding status
         state['has_object'] = has_object
+
+        self._last_active = float(state.get('intention_activity', 0.0)) > 0.0
 
         return state
 
     def reset(self):
         super().reset()
         self.cos_input = 0.0
+        self._last_active = False
+        self._checked_object = False

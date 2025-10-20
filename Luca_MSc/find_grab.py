@@ -16,7 +16,7 @@ from grab_behavior_compound import GrabBehavior
 from helper_functions import move_object, initalize_log, update_log, plot_logs
 
 
-class FindGrabBehavior:
+class FindGrabBehavior():
     """
     Composite behavior that chains find and grab behaviors.
     """
@@ -28,9 +28,12 @@ class FindGrabBehavior:
         self.check_effector_range_behavior = CheckEffectorRange()
         self.reach_for_behavior = ReachForBehavior()
         self.grab_behavior = GrabBehavior()
+        self.transport_to_behavior = MoveToBehavior()
 
         # Flag for object movement - simulating object changing location!
         self.object_moved = False
+        self.object_dropped = False
+        self.picked_up = False
 
         ## Create precondition nodes
         # Object found precondition
@@ -83,6 +86,15 @@ class FindGrabBehavior:
             self_connection_w0=2
         )
 
+        self.transported_precond = Field(
+            shape=(),
+            time_step=5.0,
+            time_scale=100.0,
+            resting_level=-3.0,
+            beta=20.0,
+            self_connection_w0=2
+        )
+
         # Register buffer for prev state
         self.found_precond.register_buffer(
             "g_u_prev",
@@ -103,6 +115,10 @@ class FindGrabBehavior:
         self.has_grabbed_precond.register_buffer(
             "g_u_prev",
             torch.zeros_like(self.has_grabbed_precond.g_u)
+        )
+        self.transported_precond.register_buffer(
+            "g_u_prev",
+            torch.zeros_like(self.transported_precond.g_u)
         )
 
         # Connections
@@ -126,8 +142,11 @@ class FindGrabBehavior:
         self.reached_target_precond.connection_to(self.grab_behavior.intention, 6.0)
         self.grab_behavior.CoS.connection_to(self.has_grabbed_precond, 6.0)
 
+        # Has Grabbed Precondition -> TransportTo Behavior
+        self.has_grabbed_precond.connection_to(self.transport_to_behavior.intention, 6.0)
+        self.transport_to_behavior.CoS.connection_to(self.transported_precond, 6.0)
 
-    def execute_step(self, interactors, target_name, external_input=5.0):
+    def execute_step(self, interactors, target_name, drop_off, external_input=5.0):
         """Execute the find portion of the behavior chain."""
 
         # Cache prev state for the precondition
@@ -136,9 +155,12 @@ class FindGrabBehavior:
         self.in_reach_precond.cache_prev()
         self.reached_target_precond.cache_prev()
         self.has_grabbed_precond.cache_prev()
+        self.transported_precond.cache_prev()
 
         # Execute find behavior
-        find_state = self.find_behavior.execute(interactors.perception, target_name, external_input)
+        find_state = self.find_behavior.execute(interactors.perception,
+                                                target_name,
+                                                external_input)
 
         # Process the precondition nodes (no external input)
         found_activation, found_activity = self.found_precond()
@@ -146,6 +168,7 @@ class FindGrabBehavior:
         in_reach_activation, in_reach_activity = self.in_reach_precond()
         reached_activation, reached_activity = self.reached_target_precond()
         has_grabbed_activation, has_grabbed_activity = self.has_grabbed_precond()
+        transported_activation, transported_activity = self.transported_precond()
 
         # Execute move-to behavior with precondition input, only if found is active
         move_state = None
@@ -170,7 +193,7 @@ class FindGrabBehavior:
             reach_for_state = self.reach_for_behavior.execute(
                 interactors.gripper,
                 find_state['target_location'],
-                threshold=0.1,
+                threshold=0.25,
                 external_input = 0.0
             )
 
@@ -184,16 +207,44 @@ class FindGrabBehavior:
                 external_input = 0.0
             )
 
+        # Transport to a new location (e.g., drop-off point)
+        transport_state = None
+        if drop_off is not None:
+            drop_off_location = interactors.perception.objects["drop_off"]['location']
+            transport_state = self.transport_to_behavior.execute(
+                interactors.movement,
+                drop_off_location,
+                external_input = 0.0
+            )
 
+        # Get current robot position from movement interactor
+        robot_position = interactors.movement.get_position()
+        gripper_position = interactors.gripper.get_position()
+
+        ##### SIMULATION RELEVANT CODE #####
         # Check if robot is close to object and object hasn't been moved yet
         close_is_active = float(close_activity) > 0.7
         if close_is_active and not self.object_moved and find_state['target_location'] is not None:
             move_object(find_state, target_name, interactors)
             self.object_moved = True
 
-        # Get current robot position from movement interactor
-        robot_position = interactors.movement.get_position()
+        # Second move to simulate object being taken out of robot's gripper after pick up
+        has_grabbed_is_active = float(has_grabbed_activity) > 0.7
+        if has_grabbed_is_active and not self.object_dropped and find_state['target_location'] is not None:
+            move_object(find_state, target_name, interactors)
+            self.object_dropped = True
+
+        # Locking the object to the gripper if grabbed
         gripper_position = interactors.gripper.get_position()
+        actual_has_object = interactors.gripper.has_object(gripper_position,
+                                                              interactors.perception.objects[target_name]['location'])
+        if self.object_moved and self.object_dropped and actual_has_object:
+            self.picked_up = True
+
+        if has_grabbed_is_active and self.picked_up:
+            interactors.perception.objects[target_name]['location'] = gripper_position.clone()
+
+        ####################################
 
         state = {
             'find': find_state,
@@ -201,6 +252,7 @@ class FindGrabBehavior:
             'in_reach': in_reach_state,
             'reach_for': reach_for_state,
             'grab': grab_state,
+            'transport': transport_state,
             'preconditions': {
                 'found': {
                     'activation': float(found_activation.detach()),
@@ -226,6 +278,11 @@ class FindGrabBehavior:
                     'activation': float(has_grabbed_activation.detach()),
                     'activity': float(has_grabbed_activity.detach()),
                     'active': float(has_grabbed_activity) > 0.7
+                },
+                'transported': {
+                    'activation': float(transported_activation.detach()),
+                    'activity': float(transported_activity.detach()),
+                    'active': float(transported_activity) > 0.7
                 }
             },
             'robot':{
@@ -247,6 +304,11 @@ class FindGrabBehavior:
         self.check_effector_range_behavior.reset()
         self.in_reach_precond.reset()
         self.reach_for_behavior.reset()
+        self.reached_target_precond.reset()
+        self.grab_behavior.reset()
+        self.has_grabbed_precond.reset()
+        self.transport_to_behavior.reset()
+        self.transported_precond.reset()
 
 
 # Example usage
@@ -271,6 +333,11 @@ if __name__ == "__main__":
                                            location=torch.tensor([5.2, 10.5, 1.8]),
                                            angle=torch.tensor([0.0, -1.0, 0.0]))
 
+    # Define drop-off location
+    interactors.perception.register_object(name="drop_off",
+                                           location=torch.tensor([5.0, 0.0, 1.0]),
+                                           angle=torch.tensor([0.0, 0.0, 0.0]))
+
     # Create the find-grab behavior
     find_grab = FindGrabBehavior()
 
@@ -278,9 +345,9 @@ if __name__ == "__main__":
     print("Starting find behavior for 'cup'...")
     i = 0
     done = 0
-    for step in range(1000):
+    for step in range(1200):
         # Execute find behavior
-        state = find_grab.execute_step(interactors, "cup", external_input)
+        state = find_grab.execute_step(interactors, "cup", "drop_off", external_input)
 
         # Update the visualizer
         if visualize:
@@ -288,20 +355,6 @@ if __name__ == "__main__":
 
         # Store logs
         update_log(log, state)
-
-        # Print status
-        #print(f"Step {step}: Active={state['find']['active']}, Completed={state['find']['completed']}")
-        # print(f"  Found={state['find']['target_found']}, "
-        #       f"Location={state['find']['target_location']}")
-        # print(f"  Intention={state['find']['intention_activity']:.2f}, "
-        #       f"CoS={state['find']['cos_activity']:.2f}, "
-        #       f"Found Precond={state['preconditions']['found']['activity']:.2f}")
-
-        # print(f"Active Movement={state['move']['active'] if state['move'] else False}, Completed Movement={state['move']['completed'] if state['move'] else False}")
-        # if state['move'] is not None:
-        #     print(f" Move Intention Activation = {state['move']['intention_activation']} "
-        #           f" Move CoS Activation = {state['move']['cos_activation']}"
-        #           f" Close Precond Activation = {state['preconditions']['close']['activation']}")
 
         i += 1
 
@@ -314,10 +367,10 @@ if __name__ == "__main__":
     if visualize:
         ani = FuncAnimation(
             visualizer.fig,  # Use visualizer's figure
-            lambda i: visualizer.update(simulation_states[min(i, len(simulation_states) - 1)]),
+            lambda i: visualizer.update(simulation_states[min(i, len(simulation_states) - 1)], interactors),
             frames=len(simulation_states),
-            interval=100,
-            blit=False,
+            interval=10,
+            blit=True,
             repeat=True
         )
 
@@ -326,4 +379,4 @@ if __name__ == "__main__":
         manager = plt.get_current_fig_manager()
         if hasattr(manager, 'window'):
             manager.window.state('normal')  # Ensure window is not minimized
-        plt.show()  # This will open in a separate window, not in PyCharm's viewer
+        plt.show()

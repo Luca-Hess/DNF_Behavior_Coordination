@@ -236,12 +236,22 @@ class GripperInteractor:
 
         return self.is_open
 
-    def has_object(self):
+    def has_object(self, gripper_position=None, object_position=None):
         """Check if gripper is holding an object (closed)."""
-        # Return True after some time if gripper is closed
-        print("Gripper closed, checking for object...")
-        if not self.is_open:
+        # Return True after some time if gripper is closed and object is close to gripper
+        if gripper_position is None:
+            gripper_position = self.get_position()
+
+        # Check proximity if object position is provided
+        proximity_check = False
+        if object_position is not None:
+            # Check if object is within 0.05 units of gripper
+            distance = torch.norm(gripper_position - object_position)
+            proximity_check = distance <= 0.1
+
+        if not self.is_open and proximity_check:
             self.wait_counter += 1
+            # Only set to True if both conditions are met
             if self.wait_counter >= 10:
                 self._has_object = True
         else:
@@ -285,14 +295,17 @@ class GripperInteractor:
         if target_location is None:
             return float('inf')
 
+        self.get_position()  # updates self.gripper_position from robot + offset
+
         distance = torch.norm(target_location - self.gripper_position)  # 3D distance
         return float(distance)
 
-    def gripper_is_at(self, target_location, thresh: float = None) -> bool:
+    def gripper_is_at(self, target_location, thresh: float = 0.01) -> bool:
         """Arrival test within threshold."""
         if target_location is None:
             return False
         threshold = self.stop_threshold if thresh is None else float(thresh)
+
         return self.calculate_distance(target_location) <= threshold
 
     def _direction_and_distance(self, target_location):
@@ -309,8 +322,6 @@ class GripperInteractor:
         Returns the applied motor command tensor [dx, dy, dz] or None if arrived/invalid.
         """
         if target_location is None:
-            return None
-        if self.gripper_is_at(target_location):
             return None
 
         direction, distance = self._direction_and_distance(target_location)
