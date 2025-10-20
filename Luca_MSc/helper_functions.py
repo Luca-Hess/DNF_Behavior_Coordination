@@ -74,7 +74,6 @@ def get_nested_value(data_dict, path_str):
 
     parts = path_str.split('.')
     current = data_dict
-    print(f"Printing Parts {parts}")
     for part in parts:
         if not current[part]:
             return None
@@ -122,7 +121,6 @@ def update_log(log, state):
                 log[f"{behavior_id}_activity"].append(0.0)
         else:
             # Handle regular behavior with intention/CoS
-            print(behavior_id, behavior_state)
             if behavior_state:
                 log[f"{behavior_id}_intention_activation"].append(behavior_state["intention_activation"])
                 log[f"{behavior_id}_intention_activity"].append(behavior_state["intention_activity"])

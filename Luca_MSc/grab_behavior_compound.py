@@ -34,7 +34,7 @@ class GrabBehavior(ElementaryBehavior):
             time_scale=100.0,
             resting_level=-3.0,
             beta=20.0,
-            self_connection_w0=3.0
+            self_connection_w0=1.5
         )
         # Register buffer for prev state
         self.toggle_node.register_buffer(

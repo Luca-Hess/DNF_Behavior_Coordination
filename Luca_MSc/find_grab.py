@@ -317,7 +317,7 @@ if __name__ == "__main__":
     log = initalize_log()
 
     # Create simulation visualizer
-    visualize = False
+    visualize = True
     if visualize:
         matplotlib.use('TkAgg')  # Use TkAgg backend which supports animation better
         visualizer = RobotSimulationVisualizer()
