@@ -1,3 +1,8 @@
+import sys
+import os
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
+
 import torch
 import matplotlib
 import matplotlib.pyplot as plt
@@ -14,7 +19,6 @@ from reach_for import ReachForBehavior
 from grab_behavior_compound import GrabBehavior
 
 from helper_functions import move_object, initalize_log, update_log, plot_logs
-
 
 class FindGrabBehavior():
     """
@@ -317,7 +321,7 @@ if __name__ == "__main__":
     log = initalize_log()
 
     # Create simulation visualizer
-    visualize = True
+    visualize = False
     if visualize:
         matplotlib.use('TkAgg')  # Use TkAgg backend which supports animation better
         visualizer = RobotSimulationVisualizer()
