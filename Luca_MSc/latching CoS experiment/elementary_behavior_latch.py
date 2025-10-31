@@ -8,7 +8,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from DNF_torch.field import Field
 
 
-class ElementaryBehavior(nn.Module):
+class ElementaryBehavior_LatchingCoS(nn.Module):
     """
     Elementary behavior structure using Dynamic Neural Fields.
     Includes CoI, CoS, and CoF nodes for behavior control.
@@ -37,14 +37,14 @@ class ElementaryBehavior(nn.Module):
         self.intention = Field(**params)
 
         # Create the control nodes
-        self.CoS = Field(**params)  # Condition of Satisfaction
+        # keep all params the same but increase self_connection_w0 for CoS
+        self.CoS = Field(**{**params, 'self_connection_w0':3.1})  # Condition of Satisfaction
 
         # Initialize connection weights
         cos_to_intention_weight = -6.0  # Inhibitory
 
         # Inhibitory
         self.CoS.connection_to(self.intention, cos_to_intention_weight)
-
 
         # Create a buffer for previous g_u values (for synchronous updates)
         self.intention.register_buffer("g_u_prev", torch.zeros_like(self.intention.g_u))

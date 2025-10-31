@@ -1,7 +1,15 @@
-from elementary_behavior import ElementaryBehavior
+import os
+import sys
+# Add DNF_torch package root
+sys.path.append(os.path.expanduser('~/nc_ws/DNF_torch'))
+
+# Add Luca_MSc subfolder for local scripts
+sys.path.append(os.path.join(os.path.expanduser('~/nc_ws/DNF_torch'), 'Luca_MSc/latching CoS experiment'))
+
+from elementary_behavior_latch import ElementaryBehavior_LatchingCoS
 
 
-class FindBehavior_IntentionCoupling(ElementaryBehavior):
+class FindBehavior_IntentionCoupling(ElementaryBehavior_LatchingCoS):
     """
     Elementary behavior to find a target object in 3D space.
     Uses external object recognition capabilities to locate objects.

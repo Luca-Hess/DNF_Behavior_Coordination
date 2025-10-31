@@ -11,19 +11,19 @@ import matplotlib
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
 
-from DNF_torch.field import Field
 from SimulationVisualizer import RobotSimulationVisualizer
 from interactors import RobotInteractors
 
 from find_int import FindBehavior_IntentionCoupling
-from move_to import MoveToBehavior
-from check_effector_range import CheckEffectorRange
-from reach_for import ReachForBehavior
-from grab_behavior_compound import GrabBehavior
+from move_to_int import MoveToBehavior_IntentionCoupling
 
-from helper_functions import move_object, initalize_log, update_log, plot_logs
+from check_found import CheckFoundBehavior
 
-class FindGrabBehavior():
+from helper_functions import nodes_list, initalize_log, update_log, plot_logs
+
+import copy
+
+class FindMoveBehavior_Experimental():
     """
     Composite behavior that chains find and grab behaviors.
     """
@@ -31,7 +31,7 @@ class FindGrabBehavior():
     def __init__(self):
         # Create component behaviors
         self.find_behavior = FindBehavior_IntentionCoupling()
-        self.move_to_behavior = MoveToBehavior()
+        self.move_to_behavior = MoveToBehavior_IntentionCoupling()
 
         # Flag for object movement - simulating object changing location!
         self.object_moved = False
@@ -39,46 +39,42 @@ class FindGrabBehavior():
         self.picked_up = False
 
         ## Create precondition nodes
-        # Object found precondition
-        self.found_precond = Field(
-            shape=(),
-            time_step=5.0,
-            time_scale=100.0,
-            resting_level=-3.0,
-            beta=20.0,
-            self_connection_w0=2
-        )
+        preconditions = ['found', 'close']
 
-        # Robot base close enough to target
-        self.close_precond = Field(
-            shape=(),
-            time_step=5.0,
-            time_scale=100.0,
-            resting_level=-3.0,
-            beta=20.0,
-            self_connection_w0=2
-        )
+        precondition_params = {
+            'shape': (),
+            'time_step': 5.0,
+            'time_scale': 100.0,
+            'resting_level': -3.0,
+            'beta': 20.0,
+            'self_connection_w0': 2
+        }
 
-        # Register buffer for prev state
-        self.found_precond.register_buffer(
-            "g_u_prev",
-            torch.zeros_like(self.found_precond.g_u)
-        )
-        self.close_precond.register_buffer(
-            "g_u_prev",
-            torch.zeros_like(self.close_precond.g_u)
-        )
+        preconds = nodes_list(preconditions, precondition_params, "precond")
 
+        # Assign precondition attributes for connection setup
+        for name in preconditions:
+            setattr(self, f"{name}_precond", preconds[f"{name}_precond"])
+
+
+        ## Create Sanity check behaviors to check CoS with less expensive messages
+        self.check_found = CheckFoundBehavior()
+        # 
         # Connections
         # Find -> Found Precondition
         self.find_behavior.CoS.connection_to(self.found_precond, 6.0)
+        self.find_behavior.CoS.connection_to(self.check_found.intention, 6.0)
 
-        # Found Precondition -> MoveTo
+
+        # Found Precondition connections
         self.found_precond.connection_to(self.move_to_behavior.intention, 6.0)
+
+        # MoveTo -> Close Precondition
         self.move_to_behavior.CoS.connection_to(self.close_precond, 6.0)
+        # self.move_to_behavior.CoS.connection_to(self.check_close.intention, 6.0)
 
 
-    def execute_step(self, interactors, target_name, drop_off, external_input=5.0):
+    def execute_step(self, interactors, target_name, drop_off, external_input=6.0):
         """Execute the find portion of the behavior chain."""
 
         # Cache prev state for the precondition
@@ -90,9 +86,15 @@ class FindGrabBehavior():
                                                 target_name,
                                                 external_input)
 
-        # Process the precondition nodes (no external input)
-        found_activation, found_activity = self.found_precond()
-        close_activation, close_activity = self.close_precond()
+        # Process the precondition & sanity check nodes (no external input)
+        found_precond_activation, found_precond_activity = self.found_precond()
+        close_precond_activation, close_precond_activity = self.close_precond()
+
+        check_found_state = self.check_found.execute(interactors.perception,
+                                                    target_name,
+                                                    external_input=0.0,
+                                                    passed_find_behavior=self.find_behavior)
+
 
         # Execute move-to behavior with precondition input, only if found is active
         move_state = None
@@ -107,21 +109,23 @@ class FindGrabBehavior():
         robot_position = interactors.movement.get_position()
         gripper_position = interactors.gripper.get_position()
 
-
         state = {
             'find': find_state,
             'move': move_state,
             'preconditions': {
                 'found': {
-                    'activation': float(found_activation.detach()),
-                    'activity': float(found_activity.detach()),
-                    'active': float(found_activity) > 0.7
+                    'activation': float(found_precond_activation.detach()),
+                    'activity': float(found_precond_activity.detach()),
+                    'active': float(found_precond_activity) > 0.7
                 },
                 'close': {
-                    'activation': float(close_activation.detach()),
-                    'activity': float(close_activity.detach()),
-                    'active': float(close_activity) > 0.7
+                    'activation': float(close_precond_activation.detach()),
+                    'activity': float(close_precond_activity.detach()),
+                    'active': float(close_precond_activity) > 0.7
                 }
+            },
+            'checks': {
+                'found': check_found_state,
             },
             'robot':{
                 'position': robot_position.tolist()
@@ -154,7 +158,7 @@ if __name__ == "__main__":
 
 
     # External input activates find_grab behavior sequence
-    external_input = 5.0
+    external_input = 6.0
 
     # Create interactors with a test object
     interactors = RobotInteractors()
@@ -168,7 +172,7 @@ if __name__ == "__main__":
                                            angle=torch.tensor([0.0, 0.0, 0.0]))
 
     # Create the find-grab behavior
-    find_grab = FindGrabBehavior()
+    find_move = FindMoveBehavior_Experimental()
 
     # Run the find behavior until completion
     print("Starting find behavior for 'cup'...")
@@ -176,7 +180,7 @@ if __name__ == "__main__":
     done = 0
     for step in range(1200):
         # Execute find behavior
-        state = find_grab.execute_step(interactors, "cup", "drop_off", external_input)
+        state = find_move.execute_step(interactors, "cup", "drop_off", external_input)
 
         # Update the visualizer
         if visualize:
