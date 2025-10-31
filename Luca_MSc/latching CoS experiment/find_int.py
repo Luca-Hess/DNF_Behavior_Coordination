@@ -1,0 +1,56 @@
+from elementary_behavior import ElementaryBehavior
+
+
+class FindBehavior_IntentionCoupling(ElementaryBehavior):
+    """
+    Elementary behavior to find a target object in 3D space.
+    Uses external object recognition capabilities to locate objects.
+    """
+
+    def __init__(self, field_params=None):
+        super().__init__(field_params)
+        self.target_location = None
+        self._last_active = False
+
+    def execute(self, interactor, target_name, external_input=0.0):
+        """
+        Execute one step of the find behavior.
+
+        Args:
+            interactor: Object providing sensory/recognition capabilities
+            target_name: Name of the target object to find
+            external_input: External input to drive the intention node
+
+        Returns:
+            dict: Behavior state and found target information
+        """
+        if self._last_active:
+            target_found, target_location = interactor.find_object(target_name)
+
+            # Keep CoS active while target is found
+            cos_input = 5.0 if target_found else 0.0
+
+            # Store target location if found
+            if target_found and target_location is not None:
+                self.target_location = target_location
+
+        else:
+            target_found, target_location = False, None
+            cos_input = 0.0
+
+        # Process behavior control
+        state = self.forward(external_input, cos_input)
+
+        self._last_active = float(state.get('intention_activity', 0.0)) > 0.0
+
+        # Add target information to state
+        state['target_found'] = target_found
+        state['target_location'] = self.target_location
+
+        return state
+
+    def reset(self):
+        """Reset the behavior state and nodes."""
+        super().reset()
+        self.target_location = None
+        self._last_active = False
