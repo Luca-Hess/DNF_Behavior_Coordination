@@ -38,7 +38,7 @@ class ElementaryBehavior_LatchingCoS(nn.Module):
 
         # Create the control nodes
         # keep all params the same but increase self_connection_w0 for CoS
-        self.CoS = Field(**{**params, 'self_connection_w0':3.1})  # Condition of Satisfaction
+        self.CoS = Field(**{**params})  # Condition of Satisfaction
 
         # Initialize connection weights
         cos_to_intention_weight = -6.0  # Inhibitory

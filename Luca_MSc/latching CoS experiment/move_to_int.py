@@ -17,6 +17,7 @@ class MoveToBehavior_IntentionCoupling(ElementaryBehavior_LatchingCoS):
     def __init__(self, field_params=None):
         super().__init__(field_params)
         self._last_active = False
+        self.cos_input = 0.0
 
     def execute(self, interactor, target_location, external_input=0.0):
         """
@@ -43,7 +44,7 @@ class MoveToBehavior_IntentionCoupling(ElementaryBehavior_LatchingCoS):
             arrived = bool(interactor.is_at(target_location, thresh=0.1))
 
             # Prepare inputs for nodes
-            cos_input = 5.0 if arrived else 0.0
+            self.cos_input = 5.0 if arrived else 0.0
 
             # Generate motor commands if active
             motor_cmd = None
@@ -53,10 +54,9 @@ class MoveToBehavior_IntentionCoupling(ElementaryBehavior_LatchingCoS):
         else:
             arrived = False
             motor_cmd = None
-            cos_input = 0.0
 
         # Process behavior control
-        state = self.forward(external_input, cos_input)
+        state = self.forward(external_input, self.cos_input)
 
         self._last_active = float(state.get('intention_activity', 0.0)) > 0.0
 

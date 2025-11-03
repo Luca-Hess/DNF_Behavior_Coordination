@@ -18,10 +18,9 @@ from find_int import FindBehavior_IntentionCoupling
 from move_to_int import MoveToBehavior_IntentionCoupling
 
 from check_found import CheckFoundBehavior
+from check_close import CheckCloseBehavior
 
-from helper_functions import nodes_list, initalize_log, update_log, plot_logs
-
-import copy
+from helper_functions import nodes_list, initalize_log, update_log, plot_logs, move_object
 
 class FindMoveBehavior_Experimental():
     """
@@ -59,11 +58,12 @@ class FindMoveBehavior_Experimental():
 
         ## Create Sanity check behaviors to check CoS with less expensive messages
         self.check_found = CheckFoundBehavior()
-        # 
+        self.check_close = CheckCloseBehavior()
+
         # Connections
         # Find -> Found Precondition
         self.find_behavior.CoS.connection_to(self.found_precond, 6.0)
-        self.find_behavior.CoS.connection_to(self.check_found.intention, 6.0)
+        self.find_behavior.CoS.connection_to(self.check_found.intention, 5.0)
 
 
         # Found Precondition connections
@@ -71,7 +71,7 @@ class FindMoveBehavior_Experimental():
 
         # MoveTo -> Close Precondition
         self.move_to_behavior.CoS.connection_to(self.close_precond, 6.0)
-        # self.move_to_behavior.CoS.connection_to(self.check_close.intention, 6.0)
+        self.move_to_behavior.CoS.connection_to(self.check_close.intention, 5.0)
 
 
     def execute_step(self, interactors, target_name, drop_off, external_input=6.0):
@@ -94,6 +94,7 @@ class FindMoveBehavior_Experimental():
                                                     target_name,
                                                     external_input=0.0,
                                                     passed_find_behavior=self.find_behavior)
+        
 
 
         # Execute move-to behavior with precondition input, only if found is active
@@ -104,6 +105,13 @@ class FindMoveBehavior_Experimental():
                 find_state['target_location'],
                 external_input = 0.0
             )
+
+        # Sanity check for close precondition
+        check_close_state = self.check_close.execute(interactors.movement,
+                                                     find_state['target_location'],
+                                                     external_input=0.0,
+                                                     passed_move_behavior=self.move_to_behavior
+                                                     )
 
         # Get current robot position from movement interactor
         robot_position = interactors.movement.get_position()
@@ -126,6 +134,7 @@ class FindMoveBehavior_Experimental():
             },
             'checks': {
                 'found': check_found_state,
+                'close': check_close_state,
             },
             'robot':{
                 'position': robot_position.tolist()
@@ -188,6 +197,9 @@ if __name__ == "__main__":
 
         # Store logs
         update_log(log, state)
+
+        if i == 500:
+            move_object(state['find'], 'cup', interactors)
 
         i += 1
 

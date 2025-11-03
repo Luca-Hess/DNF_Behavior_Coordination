@@ -1,7 +1,7 @@
 from check_behavior import CheckBehavior
 import torch
 
-class CheckFoundBehavior(CheckBehavior):
+class CheckCloseBehavior(CheckBehavior):
     """
     Low-cost sanity check behavior to verify if a found target is still present.
     """
@@ -10,7 +10,7 @@ class CheckFoundBehavior(CheckBehavior):
         super().__init__(field_params)
         self._confidence_low = False
 
-    def execute(self, interactor, target_name, external_input=0.0, passed_find_behavior=None):
+    def execute(self, interactor, target_location, external_input=0.0, passed_move_behavior=None):
         """
         Execute one step of the find behavior.
 
@@ -31,12 +31,12 @@ class CheckFoundBehavior(CheckBehavior):
         if self._confidence_low:
             # Only perform one query per confidence threshold crossing
             if not hasattr(self, '_sanity_check_done') or not self._sanity_check_done:
-                target_found, _ = interactor.find_object(target_name)
+                arrived = bool(interactor.is_at(target_location, thresh=0.1))
                 self._sanity_check_done = True
                 # If object is lost, reset find_behavior
-                if not target_found and passed_find_behavior is not None:
+                if not arrived and passed_move_behavior is not None:
                     # change the cos_input the CoS node receives from find_int to 0.0
-                    passed_find_behavior.cos_input = 0.0
+                    passed_move_behavior.cos_input = 0.0
 
                     sanity_check_failed = True
                     self.reset()

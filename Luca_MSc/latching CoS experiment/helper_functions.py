@@ -65,13 +65,13 @@ BEHAVIOR_STRUCTURE = {
 
     # Sanity checks
     "found_check": {"path": "checks.found", "type": "sanity_check"},
-    #"close_check": {"path": "checks.close", "type": "node"},
+    "close_check": {"path": "checks.close", "type": "sanity_check"},
 }
 
 # Group definitions for plotting
 PLOT_GROUPS = [
     ("Find", ["find", "found_precond", "found_check"]),
-    ("Move", ["move", "close_precond"]),
+    ("Move", ["move", "close_precond", "close_check"]),
 ]
 
 

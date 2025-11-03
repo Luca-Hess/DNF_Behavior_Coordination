@@ -1,7 +1,7 @@
 import torch
 import random
 
-random.seed(1)
+random.seed(3)
 
 class PerceptionInteractor:
     """Handles object detection and tracking."""
