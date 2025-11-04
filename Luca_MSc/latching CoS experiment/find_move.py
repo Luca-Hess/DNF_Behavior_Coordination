@@ -60,6 +60,11 @@ class FindMoveBehavior_Experimental():
         self.check_found = CheckFoundBehavior()
         self.check_close = CheckCloseBehavior()
 
+        self.sanity_checks = [
+            self.check_found,  # lowest-level check
+            self.check_close   # higher-level check
+        ]
+
         # Connections
         # Find -> Found Precondition
         self.find_behavior.CoS.connection_to(self.found_precond, 6.0)
@@ -97,14 +102,12 @@ class FindMoveBehavior_Experimental():
         
 
 
-        # Execute move-to behavior with precondition input, only if found is active
-        move_state = None
-        if find_state['target_location'] is not None:
-            move_state = self.move_to_behavior.execute(
-                interactors.movement,
-                find_state['target_location'],
-                external_input = 0.0
-            )
+    # Execute move-to behavior with precondition input, only if found is active
+        move_state = self.move_to_behavior.execute(
+            interactors.movement,
+            find_state['target_location'],
+            external_input = 0.0
+        )
 
         # Sanity check for close precondition
         check_close_state = self.check_close.execute(interactors.movement,
@@ -198,11 +201,10 @@ if __name__ == "__main__":
         # Store logs
         update_log(log, state)
 
-        if i == 500:
+        if i == 500 and state['find']['target_location'] is not None:
             move_object(state['find'], 'cup', interactors)
 
         i += 1
-
 
     # Plotting the activities of all nodes over time
     if not visualize:

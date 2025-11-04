@@ -17,7 +17,10 @@ class MoveToBehavior_IntentionCoupling(ElementaryBehavior_LatchingCoS):
     def __init__(self, field_params=None):
         super().__init__(field_params)
         self._last_active = False
+        self.arrived = False
         self.cos_input = 0.0
+        self.latched_cos = False
+
 
     def execute(self, interactor, target_location, external_input=0.0):
         """
@@ -38,22 +41,25 @@ class MoveToBehavior_IntentionCoupling(ElementaryBehavior_LatchingCoS):
                 state = self.forward(0.0, 0.0)
                 state['arrived'] = False
                 state['motor_commands'] = None
+                self.cos_input = 0.0
                 return state
 
             # Arrival check based on data from interactor, with specified "arrival" threshold
-            arrived = bool(interactor.is_at(target_location, thresh=0.1))
+            self.arrived = bool(interactor.is_at(target_location, thresh=0.1))
 
             # Prepare inputs for nodes
-            self.cos_input = 5.0 if arrived else 0.0
+            if not self.latched_cos:
+                self.cos_input = 5.0 if self.arrived else 0.0
 
             # Generate motor commands if active
             motor_cmd = None
-            if not arrived:
+            if not self.arrived:
                 motor_cmd = interactor.move_towards(target_location)
 
-        else:
-            arrived = False
+        elif not self.latched_cos:
+            self.arrived = False
             motor_cmd = None
+
 
         # Process behavior control
         state = self.forward(external_input, self.cos_input)
@@ -61,7 +67,7 @@ class MoveToBehavior_IntentionCoupling(ElementaryBehavior_LatchingCoS):
         self._last_active = float(state.get('intention_activity', 0.0)) > 0.0
 
         # Diagnostics/echo
-        state['arrived'] = arrived
+        state['arrived'] = self.arrived
         state['motor_commands'] = (
             motor_cmd.tolist() if hasattr(motor_cmd, "tolist") else motor_cmd
         )

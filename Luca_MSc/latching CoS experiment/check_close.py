@@ -31,12 +31,14 @@ class CheckCloseBehavior(CheckBehavior):
         if self._confidence_low:
             # Only perform one query per confidence threshold crossing
             if not hasattr(self, '_sanity_check_done') or not self._sanity_check_done:
-                arrived = bool(interactor.is_at(target_location, thresh=0.1))
+                still_arrived = bool(interactor.is_at(target_location, thresh=0.1))
                 self._sanity_check_done = True
                 # If object is lost, reset find_behavior
-                if not arrived and passed_move_behavior is not None:
+                if not still_arrived and passed_move_behavior is not None:
                     # change the cos_input the CoS node receives from find_int to 0.0
                     passed_move_behavior.cos_input = 0.0
+                    passed_move_behavior.arrived = False 
+                    passed_move_behavior.latched_cos = False
 
                     sanity_check_failed = True
                     self.reset()

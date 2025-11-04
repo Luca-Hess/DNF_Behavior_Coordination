@@ -31,19 +31,22 @@ class CheckFoundBehavior(CheckBehavior):
         if self._confidence_low:
             # Only perform one query per confidence threshold crossing
             if not hasattr(self, '_sanity_check_done') or not self._sanity_check_done:
-                target_found, _ = interactor.find_object(target_name)
+                target_found, target_location = interactor.find_object(target_name)
                 self._sanity_check_done = True
                 # If object is lost, reset find_behavior
                 if not target_found and passed_find_behavior is not None:
                     # change the cos_input the CoS node receives from find_int to 0.0
                     passed_find_behavior.cos_input = 0.0
+                    passed_find_behavior.target_location = None
+                    passed_find_behavior.latched_cos = False
 
                     sanity_check_failed = True
                     self.reset()
                 else:
-                    # If check passes, reset this check behavior for next cycle
+                    # If check passes, reset this check behavior for next cycle, update target location with new information
                     self.reset()
                     sanity_check_failed = False
+                    passed_find_behavior.target_location = target_location
             else:
                 # Already performed query for this threshold crossing
                 sanity_check_failed = None
