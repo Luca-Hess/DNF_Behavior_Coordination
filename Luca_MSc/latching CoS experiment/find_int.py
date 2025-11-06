@@ -8,64 +8,26 @@ sys.path.append(os.path.join(os.path.expanduser('~/nc_ws/DNF_torch'), 'Luca_MSc/
 
 from elementary_behavior_latch import ElementaryBehavior_LatchingCoS
 
-
-class FindBehavior_IntentionCoupling(ElementaryBehavior_LatchingCoS):
-    """
-    Elementary behavior to find a target object in 3D space.
-    Uses external object recognition capabilities to locate objects.
-    """
-
+class ElementaryBehavior_IntentionCoupling(ElementaryBehavior_LatchingCoS):
     def __init__(self, field_params=None):
         super().__init__(field_params)
-        self.target_location = None
-        self._last_active = False
-        self.cos_input = 0.0
-        self.latched_cos = False
+        self.cos_input = 0.0  # Subscribed value from external publisher
 
-    def execute(self, interactor, target_name, external_input=0.0):
-        """
-        Execute one step of the find behavior.
+    def set_cos_input(self, value):
+        """Called by external publisher when CoS state changes"""
+        self.cos_input = value
+        
+    def execute(self, external_input=0.0):
+        """Execute only DNF dynamics - no world interaction"""
 
-        Args:
-            interactor: Object providing sensory/recognition capabilities
-            target_name: Name of the target object to find
-            external_input: External input to drive the intention node
-
-        Returns:
-            dict: Behavior state and found target information
-        """
-        if self._last_active:
-            target_found, self.target_location = interactor.find_object(target_name)
-
-            # Store target location if found
-            if not self.latched_cos:
-                if target_found and self.target_location is not None:
-                    self.cos_input = 5.0
-
-                else:
-                    self.cos_input = 0.0
-
-        elif not self.latched_cos:
-            target_found, self.target_location = False, None
-
-        else:
-            target_found = self.target_location is not None
-            
-
-        # Process behavior control
         state = self.forward(external_input, self.cos_input)
 
-        self._last_active = float(state.get('intention_activity', 0.0)) > 0.0
-        self.latched_cos = float(state.get('cos_activity', 0.0)) > 0.0
-
-        # Add target information to state
-        state['target_found'] = target_found
-        state['target_location'] = self.target_location
-
-        return state
-
-    def reset(self):
-        """Reset the behavior state and nodes."""
-        super().reset()
-        self.target_location = None
-        self._last_active = False
+        return {
+            'intention_active': float(state.get('intention_activity', 0.0)) > 0.5,
+            'cos_active': float(state.get('cos_activity', 0.0)) > 0.7,
+            'intention_activation': float(state.get('intention_activation', 0.0)),
+            'intention_activity': float(state.get('intention_activity', 0.0)),
+            'cos_activation': float(state.get('cos_activation', 0.0)),
+            'cos_activity': float(state.get('cos_activity', 0.0))
+        }
+    

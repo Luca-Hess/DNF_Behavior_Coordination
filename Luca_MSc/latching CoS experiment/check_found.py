@@ -1,64 +1,52 @@
 from check_behavior import CheckBehavior
-import torch
 
-class CheckFoundBehavior(CheckBehavior):
+class SanityCheckBehavior(CheckBehavior):
     """
     Low-cost sanity check behavior to verify if a found target is still present.
     """
-
-    def __init__(self, field_params=None):
+    def __init__(self, behavior_name=None, field_params=None):
         super().__init__(field_params)
-        self._confidence_low = False
+        self.cos_input = 5.0
+        self.behavior_name = behavior_name  # Name of the associated elementary behavior
+        self.interactor = None  # To be set externally if needed
 
-    def execute(self, interactor, target_name, external_input=0.0, passed_find_behavior=None):
-        """
-        Execute one step of the find behavior.
+    def set_interactor(self, interactor):
+        """Set the interactor object for publishing CoS updates"""
+        self.interactor = interactor
 
-        Args:
-            interactor: Object providing sensory/recognition capabilities
-            target_name: Name of the target object to find
-            external_input: External input to drive the intention node
-            find_behavior: The FindBehavior instance to reset if sanity check fails
-
-        Returns:
-            dict: Behavior state and found target information
-        """
-        # Process behavior control
+    def execute(self, external_input=0.0):
+        """Execute only DNF dynamics - no world interaction"""
         state = self.forward(external_input, None)
-        self._confidence_low = bool(state.get('confidence_low', False))
-        sanity_check_failed = None
 
-        if self._confidence_low:
-            # Only perform one query per confidence threshold crossing
-            if not hasattr(self, '_sanity_check_done') or not self._sanity_check_done:
-                target_found, target_location = interactor.find_object(target_name)
-                self._sanity_check_done = True
-                # If object is lost, reset find_behavior
-                if not target_found and passed_find_behavior is not None:
-                    # change the cos_input the CoS node receives from find_int to 0.0
-                    passed_find_behavior.cos_input = 0.0
-                    passed_find_behavior.target_location = None
-                    passed_find_behavior.latched_cos = False
+        sanity_check_triggered = float(state.get('confidence_activity', 0.0)) > 0.7
 
-                    sanity_check_failed = True
-                    self.reset()
-                else:
-                    # If check passes, reset this check behavior for next cycle, update target location with new information
-                    self.reset()
-                    sanity_check_failed = False
-                    passed_find_behavior.target_location = target_location
-            else:
-                # Already performed query for this threshold crossing
-                sanity_check_failed = None
+        # Once the signal for a sanity check is sent, reset the node and start next checking cycle
+        if sanity_check_triggered:
+            self.reset()
+
+        return {
+            'intention_active': float(state.get('intention_activity', 0.0)) > 0.5,
+            'confidence_active': float(state.get('confidence_activity', 0.0)) > 0.7,
+            'intention_activation': float(state.get('intention_activation', 0.0)),
+            'intention_activity': float(state.get('intention_activity', 0.0)),
+            'confidence_activation': float(state.get('confidence_activation', 0.0)),
+            'confidence_activity': float(state.get('confidence_activity', 0.0)),
+            'sanity_check_triggered': sanity_check_triggered
+        }
+    
+    def process_sanity_result(self, result, check_failed_func):
+        """Process the result of the sanity check and update CoS input to the associated elementary behavior accordingly"""
+        if check_failed_func(result):
+            # Check failed - set CoS input to 0
+            cos_value = 0.0 
+
         else:
-            # Reset flag when confidence is not low
-            self._sanity_check_done = False
-            sanity_check_failed = None
+            # Check passed - set active CoS input
+            cos_value = 5.0
 
-        state['sanity_check_failed'] = sanity_check_failed
-        return state
+        # Update CoS input of the associated elementary behavior
+        if self.interactor and self.behavior_name:
+            self.interactor.publish_cos_state(self.behavior_name, cos_value)
 
-    def reset(self):
-        """Reset the behavior state and nodes."""
-        super().reset()
-        self._confidence_low = False
+        # Update internal CoS state
+        self.cos_input = cos_value

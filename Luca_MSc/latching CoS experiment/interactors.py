@@ -1,37 +1,69 @@
 import torch
 import random
+import time
 
 random.seed(2) #seed 2 has no collapses for find, 3 has two
 
 class PerceptionInteractor:
-    """Handles object detection and tracking."""
-
-    def __init__(self, tracking_loss_prob=0.2, max_tracking_loss_duration=5, get_robot_position=None):
+    def __init__(self, tracking_loss_prob=0.3, max_tracking_loss_duration=10, get_robot_position=None):
         self.objects = {}
         self.search_attempts = 0
-
-        # Robot position (for range checks)
-        if get_robot_position is None:
-            raise ValueError("PerceptionInteractor requires a get_robot_position callable")
         self._get_robot_position = get_robot_position
 
-        # Simulating tracking loss
         self.tracking_loss_probability = tracking_loss_prob
         self.max_tracking_loss_duration = max_tracking_loss_duration
         self.in_tracking_loss = False
-        self.tracking_loss_remaining = 0
-
-    def register_object(self, name, location, angle):
-        """Register a known object with its location and orientation (for grabbing)."""
-        if name not in self.objects:
-            self.objects[name] = {}
-
-        self.objects[name]['location'] = location
-        self.objects[name]['angle'] = angle
-
-
-    def find_object(self, name):
-        """Attempt to find an object by name."""
+        
+        # Pub/Sub state
+        self.subscribers = {}  # {behavior_name: callback}
+        self.target_states = {}  # Shared state across all behaviors
+        
+    def subscribe_cos_updates(self, behavior_name, callback):
+        """Register a behavior to receive CoS updates"""
+        self.subscribers[behavior_name] = callback
+        
+    def publish_cos_state(self, behavior_name, cos_value):
+        """Publish CoS state to subscribed behavior"""
+        if behavior_name in self.subscribers:
+            self.subscribers[behavior_name](cos_value)
+            
+    def find_object_service(self, name):
+        """Service call for sanity checks - one-time query"""
+        target_found, location = self._find_object_internal(name)
+        self._update_and_publish_state(name, target_found, location)
+        
+        return target_found, location
+        
+    def find_object_continuous(self, name, requesting_behavior):
+        """Continuous publisher for active behaviors"""
+        target_found, location = self._find_object_internal(name)
+        self._update_and_publish_state(name, target_found, location, requesting_behavior)
+        
+        return target_found, location
+    
+    def _update_and_publish_state(self, name, target_found, location, requesting_behavior=None):
+        """Common logic for updating shared state and publishing CoS"""
+        
+        # Update shared target state for other interactors
+        self.target_states[name] = {
+            'found': target_found,
+            'location': location,
+            'last_updated': time.time()
+        }
+        
+        # Publish CoS update - same logic for both continuous and service
+        cos_value = 5.0 if target_found else 0.0
+        
+        if requesting_behavior:
+            # Continuous call - publish to specific requesting behavior
+            self.publish_cos_state(requesting_behavior, cos_value)
+        else:
+            # Service call
+            # For sanity checks, the check behavior will handle CoS publishing separately
+            pass
+        
+    def _find_object_internal(self, name):
+        """Internal object finding logic"""
         self.search_attempts += 1
 
         # Check if we should start a tracking loss period
@@ -45,35 +77,19 @@ class PerceptionInteractor:
             if self.tracking_loss_remaining <= 0:
                 self.in_tracking_loss = False
             return False, None
-
+        
         # Normal detection logic
         if name in self.objects and self.search_attempts >= 3:
             return True, self.objects[name]['location']
         return False, None
 
-    def find_object_angle(self, name):
-        """Get the orientation of a known object by name."""
-        if name in self.objects and 'angle' in self.objects[name]:
-            return self.objects[name]['angle']
-        return None
-
-    def in_range(self, target_location, reach: float = 2.0) -> bool:
-        """Check if target is within a certain range in 3D space,
-        based on the end-effector reach."""
-        if target_location is None:
-            return False
-
-        robot_pos = self._get_robot_position()
-
-        distance = torch.norm(target_location - robot_pos)  # 3D distance
-        if distance > reach:
-            return False
-        else:
-            return True
-
-    def reset(self):
-        """Reset perception state."""
-        self.search_attempts = 0
+    def register_object(self, name, location, angle=torch.tensor([0.0, 0.0, 0.0])):
+        """Register or update an object's location and angle."""
+        self.objects[name] = {
+            'location': location,
+            'angle': angle,
+            'lost_counter': 0
+        }
 
 
 class MovementInteractor:
@@ -89,6 +105,61 @@ class MovementInteractor:
         self.max_speed = max_speed
         self.gain = gain
         self.stop_threshold = stop_threshold
+
+        # Pub/Sub state
+        self.subscribers = {}  # {behavior_name: callback}
+        self.movement_states = {}  # Shared state across behaviors
+        
+    def subscribe_cos_updates(self, behavior_name, callback):
+        """Register a behavior to receive CoS updates"""
+        self.subscribers[behavior_name] = callback
+        
+    def publish_cos_state(self, behavior_name, cos_value):
+        """Publish CoS state to subscribed behavior"""
+        if behavior_name in self.subscribers:
+            self.subscribers[behavior_name](cos_value)
+            
+    def move_to_service(self, target_location):
+        """Service call for sanity checks - one-time query"""
+        arrived, position = self._check_arrival_internal(target_location)
+        self._update_and_publish_state(target_location, arrived, position)
+        return arrived, position
+        
+    def move_to_continuous(self, target_location, requesting_behavior):
+        """Continuous publisher for active behaviors"""
+        # Execute movement step
+        self.move_towards(target_location)
+        arrived, position = self._check_arrival_internal(target_location)
+        self._update_and_publish_state(target_location, arrived, position, requesting_behavior)
+        return arrived, position
+    
+    def _update_and_publish_state(self, target_location, arrived, position, requesting_behavior=None):
+        """Common logic for updating shared state and publishing CoS"""
+
+        # Determine CoS value based on arrival
+        cos_value = 5.0 if arrived else 0.0
+
+        # Update shared state
+        if requesting_behavior:
+            self.movement_states[requesting_behavior] = {
+                'target_location': target_location,
+                'arrived': arrived,
+                'distance': self.calculate_distance(target_location),
+                'last_updated': time.time()
+            }
+        
+            # Continuous call - publish to specific requesting behavior
+            self.publish_cos_state(requesting_behavior, cos_value)
+
+        else:
+            # Service call
+            # For sanity checks, the check behavior will handle CoS publishing separately
+            pass
+                
+    def _check_arrival_internal(self, target_location):
+        """Internal arrival check logic"""
+        arrived = self.is_at(target_location)
+        return arrived, self.get_position()
 
     def get_position(self):
         """Get the current robot position."""
@@ -181,6 +252,10 @@ class GripperInteractor:
         self._has_object = has_object_state
         self.wait_counter = 0  # for simulating object grasp delay
 
+        # Pub/Sub state
+        self.subscribers = {}  # {behavior_name: callback}
+        self.gripper_states = {}  # Shared state across behaviors
+
         # Robot position reference
         if get_robot_position is None:
             raise ValueError("GripperInteractor requires a get_robot_position callable")
@@ -191,6 +266,59 @@ class GripperInteractor:
         self.gripper_offset = torch.tensor([0.0, 0.0, 0.5]) # gripper is slightly above base
         self.gripper_position = robot_position + self.gripper_offset
 
+    def subscribe_cos_updates(self, behavior_name, callback):
+        """Register a behavior to receive CoS updates"""
+        self.subscribers[behavior_name] = callback
+        
+    def publish_cos_state(self, behavior_name, cos_value):
+        """Publish CoS state to subscribed behavior"""
+        if behavior_name in self.subscribers:
+            self.subscribers[behavior_name](cos_value)
+
+    def gripper_can_reach(self, target_location):
+        """Check if gripper can reach the target location."""
+        if target_location is None:
+            return False
+
+        robot_position = self._get_robot_position()
+        offset = target_location - robot_position
+        distance = torch.norm(offset)
+
+        return distance <= self.max_reach
+            
+    def reach_check_continuous(self, target_location, requesting_behavior):
+        """Continuous publisher for active behaviors"""
+        reachable = self.gripper_can_reach(target_location)
+        self._update_and_publish_state(target_location, reachable, requesting_behavior)
+        return reachable, self.get_position()
+    
+    def reach_check_service(self, target_location):
+        """Service call for sanity checks - one-time query"""
+        reachable = self.gripper_can_reach(target_location)
+        self._update_and_publish_state(target_location, reachable)
+        return reachable, self.get_position()
+    
+    def _update_and_publish_state(self, target_location, reachable, requesting_behavior=None):
+        """Common logic for updating shared state and publishing CoS"""
+
+        # Determine CoS value based on reachability
+        cos_value = 5.0 if reachable else 0.0
+
+        # Update shared state
+        if requesting_behavior:
+            self.gripper_states[requesting_behavior] = {
+                'target_location': target_location,
+                'reachable': reachable,
+                'distance': self.calculate_distance(target_location),
+                'last_updated': time.time()
+            }
+            # Continuous call - publish to specific requesting behavior
+            self.publish_cos_state(requesting_behavior, cos_value)
+
+        else:
+            # Service call
+            # For sanity checks, the check behavior will handle CoS publishing separately
+            pass
 
     def normalize_orientation(self):
         """Normalize orientation angles to the range [-π, π]."""

@@ -14,152 +14,201 @@ from matplotlib.animation import FuncAnimation
 from SimulationVisualizer import RobotSimulationVisualizer
 from interactors import RobotInteractors
 
-from find_int import FindBehavior_IntentionCoupling
-from move_to_int import MoveToBehavior_IntentionCoupling
+from find_int import ElementaryBehavior_IntentionCoupling
 
-from check_found import CheckFoundBehavior
-from check_close import CheckCloseBehavior
+from check_found import SanityCheckBehavior
 
 from helper_functions import nodes_list, initalize_log, update_log, plot_logs, move_object
 
 class FindMoveBehavior_Experimental():
-    """
-    Composite behavior that chains find and grab behaviors.
-    """
+    def __init__(self, behaviors=list):
 
-    def __init__(self):
-        # Create component behaviors
-        self.find_behavior = FindBehavior_IntentionCoupling()
-        self.move_to_behavior = MoveToBehavior_IntentionCoupling()
-
-        # Flag for object movement - simulating object changing location!
-        self.object_moved = False
-        self.object_dropped = False
-        self.picked_up = False
-
-        ## Create precondition nodes
-        preconditions = ['found', 'close']
-
-        precondition_params = {
-            'shape': (),
-            'time_step': 5.0,
-            'time_scale': 100.0,
-            'resting_level': -3.0,
-            'beta': 20.0,
-            'self_connection_w0': 2
-        }
-
-        preconds = nodes_list(preconditions, precondition_params, "precond")
-
-        # Assign precondition attributes for connection setup
-        for name in preconditions:
-            setattr(self, f"{name}_precond", preconds[f"{name}_precond"])
+        self.initialize_nodes_and_behaviors(behaviors)
 
 
-        ## Create Sanity check behaviors to check CoS with less expensive messages
-        self.check_found = CheckFoundBehavior()
-        self.check_close = CheckCloseBehavior()
-
-        self.sanity_checks = [
-            self.check_found,  # lowest-level check
-            self.check_close   # higher-level check
+        ## Behavior chain with all node information
+        # Initialize shared structures
+        self.behavior_chain = [
+            {
+                'name': name,                                       # Behavior name string
+                'behavior': getattr(self, f"{name}_behavior"),      # Elementary behavior
+                'check': getattr(self, f"check_{name}"),            # Sanity check behavior
+                'precondition': getattr(self, f"{name}_precond"),   # Precondition node
+                'has_next_precondition': i < len(behaviors) - 1,    # Last behavior has no next precondition
+                'check_failed_func': lambda result: not result[0]   # State of sanity check
+            }
+            for i, name in enumerate(behaviors)
         ]
 
-        # Connections
-        # Find -> Found Precondition
-        self.find_behavior.CoS.connection_to(self.found_precond, 6.0)
-        self.find_behavior.CoS.connection_to(self.check_found.intention, 5.0)
-
-
-        # Found Precondition connections
-        self.found_precond.connection_to(self.move_to_behavior.intention, 6.0)
-
-        # MoveTo -> Close Precondition
-        self.move_to_behavior.CoS.connection_to(self.close_precond, 6.0)
-        self.move_to_behavior.CoS.connection_to(self.check_close.intention, 5.0)
-
-
-    def execute_step(self, interactors, target_name, drop_off, external_input=6.0):
-        """Execute the find portion of the behavior chain."""
-
-        # Cache prev state for the precondition
-        self.found_precond.cache_prev()
-        self.close_precond.cache_prev()
-
-        # Execute find behavior
-        find_state = self.find_behavior.execute(interactors.perception,
-                                                target_name,
-                                                external_input)
-
-        # Process the precondition & sanity check nodes (no external input)
-        found_precond_activation, found_precond_activity = self.found_precond()
-        close_precond_activation, close_precond_activity = self.close_precond()
-
-        check_found_state = self.check_found.execute(interactors.perception,
-                                                    target_name,
-                                                    external_input=0.0,
-                                                    passed_find_behavior=self.find_behavior)
+        # Add additional behavior chain info specific to each behavior
+        for level in self.behavior_chain:
+            if level['name'] == 'find':
+                level.update({
+                    'interactor_type': 'perception',
+                    'continuous_method': 'find_object_continuous',
+                    'service_method': 'find_object_service',
+                    'service_args_func': lambda interactors, target_name: (target_name,)
+                })
+            elif level['name'] == 'move':
+                level.update({
+                    'interactor_type': 'movement',
+                    'continuous_method': 'move_to_continuous',
+                    'service_method': 'move_to_service',
+                    'service_args_func': lambda interactors, target_name: (
+                        interactors.perception.target_states.get(target_name, {}).get('location'),
+                    )
+                })
+            elif level['name'] == 'check_reach':
+                level.update({
+                    'interactor_type': 'gripper',
+                    'continuous_method': 'reach_check_continuous',
+                    'service_method': 'reach_check_service',
+                    'service_args_func': lambda interactors, target_name: (
+                        interactors.perception.target_states.get(target_name, {}).get('location'),
+                    )
+                })
         
+        # Setup connections using behavior chain information
+        self.setup_connections()
 
+    
+    def initialize_nodes_and_behaviors(self, behaviors=list):
+        """Initialize all nodes and behaviors for the find-move behavior chain."""
+        preconditions = nodes_list(node_names=[f"{name}" for name in behaviors], type_str="precond")
 
-    # Execute move-to behavior with precondition input, only if found is active
-        move_state = self.move_to_behavior.execute(
-            interactors.movement,
-            find_state['target_location'],
-            external_input = 0.0
-        )
+        for name in behaviors:
+            setattr(self, f"{name}_behavior", ElementaryBehavior_IntentionCoupling())
+            setattr(self, f"check_{name}", SanityCheckBehavior(behavior_name=name))
+            setattr(self, f"{name}_precond", preconditions[f"{name}_precond"])
+        
+    def setup_connections(self):
+        """Setup all neural field connections using behavior chain data"""
+        for i, level in enumerate(self.behavior_chain):
+            # CoS to precondition (weight 6)
+            level['behavior'].CoS.connection_to(level['precondition'], 6.0)
+            
+            # CoS to check (weight 5)
+            level['behavior'].CoS.connection_to(level['check'].intention, 5.0)
+            
+            # Precondition to next intention (weight 6) - if there's a next level
+            if level.get('has_next_precondition', False) and i + 1 < len(self.behavior_chain):
+                next_level = self.behavior_chain[i + 1]
+                level['precondition'].connection_to(next_level['behavior'].intention, 6.0)
+        
+    def setup_subscriptions(self, interactors):
+        """Setup pub/sub connections using behavior chain data"""
+        # Main behavior subscribes to interactor CoS updates
+        for level in self.behavior_chain:
+            interactor = getattr(interactors, level['interactor_type'])
+            interactor.subscribe_cos_updates(
+                level['name'], level['behavior'].set_cos_input
+            )
 
-        # Sanity check for close precondition
-        check_close_state = self.check_close.execute(interactors.movement,
-                                                     find_state['target_location'],
-                                                     external_input=0.0,
-                                                     passed_move_behavior=self.move_to_behavior
-                                                     )
+            # Set up check behavior to publish back to the same interactor
+            level['check'].set_interactor(interactor)
+        
+    def execute_step(self, interactors, target_name, external_input=6.0):
+        # Determine which behavior is currently active
+        active_behavior = self._get_active_behavior()
 
-        # Get current robot position from movement interactor
-        robot_position = interactors.movement.get_position()
-        gripper_position = interactors.gripper.get_position()
+        # Execute continuous world interaction for active behavior
+        if active_behavior:
+            level = next(l for l in self.behavior_chain if l['name'] == active_behavior)
+            interactor = getattr(interactors, level['interactor_type'])
+            continuous_method = getattr(interactor, level['continuous_method'])
+            
+            # Get service args and call continuous method
+            service_args = level['service_args_func'](interactors, target_name)
+            if service_args[0] is not None:  # Only call if we have valid args
+                continuous_method(*service_args, level['name'])
+                
+        # Execute all behaviors (just DNF dynamics)
+        states = {}
+        for level in self.behavior_chain:
+            ext_input = external_input if level['name'] == 'find' else 0.0
+            states[level['name']] = level['behavior'].execute(ext_input)
 
-        state = {
-            'find': find_state,
-            'move': move_state,
-            'preconditions': {
-                'found': {
-                    'activation': float(found_precond_activation.detach()),
-                    'activity': float(found_precond_activity.detach()),
-                    'active': float(found_precond_activity) > 0.7
-                },
-                'close': {
-                    'activation': float(close_precond_activation.detach()),
-                    'activity': float(close_precond_activity.detach()),
-                    'active': float(close_precond_activity) > 0.7
-                }
-            },
-            'checks': {
-                'found': check_found_state,
-                'close': check_close_state,
-            },
-            'robot':{
-                'position': robot_position.tolist()
-            },
-            'gripper':{
-                'position': gripper_position.tolist()
+            
+        # Process preconditions and add to state
+        states['preconditions'] = {}
+        for level in self.behavior_chain:
+            level['precondition'].cache_prev()
+            activation, activity = level['precondition']()
+            states['preconditions'][level['name']] = {
+                'activation': float(activation.detach()),
+                'activity': float(activity.detach()),
+                'active': float(activity) > 0.7
             }
-        }
+            
+        # Process check behaviors - they decide autonomously about sanity checks
+        states['checks'] = {}
+        for level in self.behavior_chain:
+            # Execute check behavior autonomously
+            check_state = level['check'].execute(external_input=0.0)
+            
+            # Extract node states
+            if hasattr(level['check'], 'confidence'):
+                level['check'].confidence.cache_prev()
+                conf_activation, conf_activity = level['check'].confidence()
+                confidence_activation = float(conf_activation.detach())
+                confidence_activity = float(conf_activity.detach())
+            else:
+                confidence_activation = 0.0
+                confidence_activity = 0.0
+                
+            if hasattr(level['check'], 'intention'):
+                level['check'].intention.cache_prev()
+                int_activation, int_activity = level['check'].intention()
+                intention_activation = float(int_activation.detach())
+                intention_activity = float(int_activity.detach())
+            else:
+                intention_activation = 0.0
+                intention_activity = 0.0
+            
+            states['checks'][level['name']] = {
+                'confidence_activation': confidence_activation,
+                'confidence_activity': confidence_activity,
+                'intention_activation': intention_activation,
+                'intention_activity': intention_activity,
+                'sanity_check_triggered': check_state.get('sanity_check_triggered', False)
+            }
+            
+            # If check behavior autonomously decided to trigger sanity check
+            if check_state.get('sanity_check_triggered', False):
+                interactor = getattr(interactors, level['interactor_type'])
+                service_method = getattr(interactor, level['service_method'])
+                service_args = level['service_args_func'](interactors, target_name)
+                
+                if service_args[0] is not None:
+                    # Single service call to verify current state
+                    result = service_method(*service_args)
+                    
+                    # Check behavior processes result and updates its own CoS input
+                    level['check'].process_sanity_result(result, level['check_failed_func'])
 
-        return state
+            
+        return states
+        
+    def _get_active_behavior(self):
+        """Determine which behavior should be actively interacting with world"""
+        for level in self.behavior_chain:
+            if level['behavior'].execute()['intention_active']:
+                return level['name']
+        return None
 
     def reset(self):
-        """Reset all behaviors and preconditions."""
-        self.find_behavior.reset()
-        self.found_precond.reset()
-        self.move_to_behavior.reset()
-        self.close_precond.reset()
+        """Reset all behaviors and preconditions using behavior chain data"""
+        for level in self.behavior_chain:
+            level['behavior'].reset()
+            level['precondition'].reset()
+            level['check'].reset()
 
 # Example usage
 if __name__ == "__main__":
+
+    find_move = FindMoveBehavior_Experimental(behaviors=['find', 'move', 'check_reach'])
     # Log all activations and activities for plotting
-    log = initalize_log()
+    log = initalize_log(find_move.behavior_chain)
 
     # Create simulation visualizer
     visualize = False
@@ -170,7 +219,7 @@ if __name__ == "__main__":
 
 
     # External input activates find_grab behavior sequence
-    external_input = 6.0
+    external_input = 10.0
 
     # Create interactors with a test object
     interactors = RobotInteractors()
@@ -184,31 +233,41 @@ if __name__ == "__main__":
                                            angle=torch.tensor([0.0, 0.0, 0.0]))
 
     # Create the find-grab behavior
-    find_move = FindMoveBehavior_Experimental()
+    find_move.setup_subscriptions(interactors)
 
     # Run the find behavior until completion
     print("Starting find behavior for 'cup'...")
     i = 0
-    done = 0
+    done = False
+
     for step in range(1200):
         # Execute find behavior
-        state = find_move.execute_step(interactors, "cup", "drop_off", external_input)
+        state = find_move.execute_step(interactors, "cup", external_input)
 
         # Update the visualizer
         if visualize:
             simulation_states.append(state)
 
         # Store logs
-        update_log(log, state)
+        update_log(log, state, step, find_move.behavior_chain)
 
-        if i == 500 and state['find']['target_location'] is not None:
-            move_object(state['find'], 'cup', interactors)
+
+        if i == 450:
+            # Move the cup to test tracking and recovery
+            print(f"[Step {step}] Moving cup to test robustness...")
+            new_location = torch.tensor([8.0, 12.0, 1.8])
+            interactors.perception.objects["cup"]["location"] = new_location
+            # Optionally cause tracking loss
+            if hasattr(interactors.perception, 'cause_tracking_loss'):
+                interactors.perception.cause_tracking_loss("cup", duration=10)
 
         i += 1
+    
+    print('Final Position:', interactors.movement.get_position())
 
     # Plotting the activities of all nodes over time
     if not visualize:
-        plot_logs(log, steps=i)  # or steps=500 if you always run 500 steps
+        plot_logs(log, step, find_move.behavior_chain)  # or steps=500 if you always run 500 steps
 
     # Create animation
     if visualize:

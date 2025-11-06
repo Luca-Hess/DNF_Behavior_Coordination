@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 from DNF_torch.field import Field
 
 
-def nodes_list(node_names = list, params=dict(), type_str="precond"):
+def nodes_list(node_names = list, type_str="precond", params=dict()):
     """
     Create precondition nodes with given parameters.
     """
@@ -23,7 +23,7 @@ def nodes_list(node_names = list, params=dict(), type_str="precond"):
             scale=params.get('scale', 1.0)
         )
 
-    # Register buffer for prev state
+        # Register buffer for prev state
         nodes[f'{name}_{type_str}'].register_buffer(
             "g_u_prev",
             torch.zeros_like(nodes[f'{name}_{type_str}'].g_u)
@@ -52,170 +52,185 @@ def move_object(find_state, target_name, interactors, offset=(5.0, -2.0, 0.0)):
 
 
 # Initialize and update logs of node activities
-
-# Define behavior structure
-BEHAVIOR_STRUCTURE = {
-    # Top-level behaviors
-    "find": {"path": "find", "type": "behavior"},
-    "move": {"path": "move", "type": "behavior"},
-
-    # Preconditions
-    "found_precond": {"path": "preconditions.found", "type": "node"},
-    "close_precond": {"path": "preconditions.close", "type": "node"},
-
-    # Sanity checks
-    "found_check": {"path": "checks.found", "type": "sanity_check"},
-    "close_check": {"path": "checks.close", "type": "sanity_check"},
-}
-
-# Group definitions for plotting
-PLOT_GROUPS = [
-    ("Find", ["find", "found_precond", "found_check"]),
-    ("Move", ["move", "close_precond", "close_check"]),
-]
-
-
-def get_nested_value(data_dict, path_str):
-    """Helper to safely get nested values from dictionary using dot notation."""
-    if data_dict is None:
-        return None
-
-    parts = path_str.split('.')
-    current = data_dict
-    for part in parts:
-        if not current[part]:
-            return None
-        elif part not in current:
-            return None
-        current = current[part]
-    return current
-
-
-def initalize_log():
-    """Initialize the log dictionary with all keys and empty lists."""
-    log = {}
-
-    # Generate keys for each behavior
-    for behavior_id, behavior_info in BEHAVIOR_STRUCTURE.items():
-        if behavior_info["type"] == "node" or behavior_info["type"] == "precondition":
-            # Special case for nodes that only have activation/activity
-            log[f"{behavior_id}_activation"] = []
-            log[f"{behavior_id}_activity"] = []
+def initalize_log(behavior_chain):
+    """
+    Initialize the log dictionary adaptively based on the behavior chain.
+    
+    Args:
+        behavior_chain: List of behavior dictionaries from FindMoveBehavior_Experimental
         
-        elif behavior_info["type"] == "sanity_check":
-            # Special case for sanity check nodes
-            log[f"{behavior_id}_intention_activation"] = []
-            log[f"{behavior_id}_intention_activity"] = []
-            log[f"{behavior_id}_confidence_activation"] = []
-            log[f"{behavior_id}_confidence_activity"] = []
-
-        else:
-            # Regular behavior with intention/CoS
-            log[f"{behavior_id}_intention_activation"] = []
-            log[f"{behavior_id}_intention_activity"] = []
-            log[f"{behavior_id}_cos_activation"] = []
-            log[f"{behavior_id}_cos_activity"] = []
-
+    Returns:
+        dict: Empty log dictionary with all required keys
+    """
+    log = {'steps': []}
+    
+    # Generate keys for each behavior in the chain
+    for level in behavior_chain:
+        behavior_name = level['name']
+        
+        # Elementary behavior logs (intention - activation and activity)
+        log[f'{behavior_name}_intention_activation'] = []
+        log[f'{behavior_name}_intention_activity'] = []
+        log[f'{behavior_name}_intention_active'] = []
+        
+        # CoS logs (activation and activity)
+        log[f'{behavior_name}_cos_activation'] = []
+        log[f'{behavior_name}_cos_activity'] = []
+        log[f'{behavior_name}_cos_active'] = []
+        
+        # Precondition logs (activation and activity)
+        log[f'{behavior_name}_precond_activation'] = []
+        log[f'{behavior_name}_precond_activity'] = []
+        log[f'{behavior_name}_precond_active'] = []
+        
+        # Check behavior logs (confidence and intention nodes)
+        log[f'{behavior_name}_check_confidence_activation'] = []
+        log[f'{behavior_name}_check_confidence_activity'] = []
+        log[f'{behavior_name}_check_intention_activation'] = []
+        log[f'{behavior_name}_check_intention_activity'] = []
+        log[f'{behavior_name}_check_confidence_low'] = []
+    
     return log
 
 
-def update_log(log, state):
-    """Append values from the current state into the log dict."""
-
-    # Process each behavior defined in our structure
-    for behavior_id, behavior_info in BEHAVIOR_STRUCTURE.items():
-        # Get the nested value using the defined path
-        behavior_state = get_nested_value(state, behavior_info["path"])
-
-        if behavior_info["type"] == "node" or behavior_info["type"] == "precondition":
-            # Handle special case for nodes (only activation/activity)
-            if behavior_state and "activation" in behavior_state and "activity" in behavior_state:
-                log[f"{behavior_id}_activation"].append(behavior_state["activation"])
-                log[f"{behavior_id}_activity"].append(behavior_state["activity"])
-            else:
-                log[f"{behavior_id}_activation"].append(-3.0)
-                log[f"{behavior_id}_activity"].append(0.0)
-
-        elif behavior_info["type"] == "sanity_check":
-            # Handle special case for sanity check nodes
-            if behavior_state:
-                log[f"{behavior_id}_intention_activation"].append(behavior_state["intention_activation"])
-                log[f"{behavior_id}_intention_activity"].append(behavior_state["intention_activity"])
-                log[f"{behavior_id}_confidence_activation"].append(behavior_state["confidence_activation"])
-                log[f"{behavior_id}_confidence_activity"].append(behavior_state["confidence_activity"])
-            else:
-                log[f"{behavior_id}_intention_activation"].append(-3.0)
-                log[f"{behavior_id}_intention_activity"].append(0.0)
-                log[f"{behavior_id}_confidence_activation"].append(-4.0)
-                log[f"{behavior_id}_confidence_activity"].append(0.0)
-
-
+def update_log(log, state, step, behavior_chain):
+    """
+    Logging function that uses the behavior chain structure.
+    
+    Args:
+        log: Dictionary containing log arrays
+        state: State dictionary from execute_step()
+        step: Current simulation step
+        behavior_chain: List of behavior dictionaries
+    """
+    # Log elementary behavior states
+    for level in behavior_chain:
+        behavior_name = level['name']
+        
+        if behavior_name in state and state[behavior_name] is not None:
+            behavior_state = state[behavior_name]
+            
+            # Log intention activation and activity
+            log[f'{behavior_name}_intention_activation'].append(behavior_state.get('intention_activation', 0.0))
+            log[f'{behavior_name}_intention_activity'].append(behavior_state['intention_activity'])
+            log[f'{behavior_name}_intention_active'].append(1.0 if behavior_state['intention_active'] else 0.0)
+            
+            # Log CoS activation and activity  
+            log[f'{behavior_name}_cos_activation'].append(behavior_state.get('cos_activation', 0.0))
+            log[f'{behavior_name}_cos_activity'].append(behavior_state['cos_activity'])
+            log[f'{behavior_name}_cos_active'].append(1.0 if behavior_state['cos_active'] else 0.0)
         else:
-            # Handle regular behavior with intention/CoS
-            if behavior_state:
-                log[f"{behavior_id}_intention_activation"].append(behavior_state["intention_activation"])
-                log[f"{behavior_id}_intention_activity"].append(behavior_state["intention_activity"])
-                log[f"{behavior_id}_cos_activation"].append(behavior_state["cos_activation"])
-                log[f"{behavior_id}_cos_activity"].append(behavior_state["cos_activity"])
+            # Fill with zeros if behavior state is None
+            log[f'{behavior_name}_intention_activation'].append(0.0)
+            log[f'{behavior_name}_intention_activity'].append(0.0)
+            log[f'{behavior_name}_intention_active'].append(0.0)
+            log[f'{behavior_name}_cos_activation'].append(0.0)
+            log[f'{behavior_name}_cos_activity'].append(0.0)
+            log[f'{behavior_name}_cos_active'].append(0.0)
+    
+    # Log precondition states
+    if 'preconditions' in state:
+        for level in behavior_chain:
+            behavior_name = level['name']
+            
+            if behavior_name in state['preconditions']:
+                precond_state = state['preconditions'][behavior_name]
+                log[f'{behavior_name}_precond_activation'].append(precond_state['activation'])
+                log[f'{behavior_name}_precond_activity'].append(precond_state['activity'])
+                log[f'{behavior_name}_precond_active'].append(1.0 if precond_state['active'] else 0.0)
             else:
-                log[f"{behavior_id}_intention_activation"].append(-3.0)
-                log[f"{behavior_id}_intention_activity"].append(0.0)
-                log[f"{behavior_id}_cos_activation"].append(-3.0)
-                log[f"{behavior_id}_cos_activity"].append(0.0)
-
-
-def plot_logs(log, steps):
-    """Plot all behavior signals organized by groups."""
-    ts = np.arange(steps)
-
-    # Create plot groups based on our defined structure
-    plot_data = []
-    for title, behavior_ids in PLOT_GROUPS:
-        signals = []
-        for behavior_id in behavior_ids:
-            behavior_info = BEHAVIOR_STRUCTURE.get(behavior_id)
-
-            if behavior_info["type"] == "node" or behavior_info["type"] == "precondition":
-                # Special case for node with only activation/activity
-                signals.append(
-                    (f"{behavior_id}_activation", f"{behavior_id.replace('_', ' ').title()} (activation)", "-"))
-                signals.append((f"{behavior_id}_activity", f"{behavior_id.replace('_', ' ').title()} (activity)", "--"))
-
-            elif behavior_info["type"] == "sanity_check":
-                # Special case for sanity check nodes
-                signals.append((f"{behavior_id}_intention_activation",
-                                f"Intention {behavior_id.replace('_', ' ').title()} (activation)", "-"))
-                signals.append(
-                    (f"{behavior_id}_confidence_activation", f"Confidence {behavior_id.replace('_', ' ').title()} (activation)", "-"))
-                signals.append((f"{behavior_id}_intention_activity",
-                                f"Intention {behavior_id.replace('_', ' ').title()} (activity)", "--"))
-                signals.append(
-                    (f"{behavior_id}_confidence_activity", f"Confidence {behavior_id.replace('_', ' ').title()} (activity)", "--"))
-
+                log[f'{behavior_name}_precond_activation'].append(0.0)
+                log[f'{behavior_name}_precond_activity'].append(0.0)
+                log[f'{behavior_name}_precond_active'].append(0.0)
+    
+    # Log check behavior states
+    if 'checks' in state:
+        for level in behavior_chain:
+            behavior_name = level['name']
+            
+            if behavior_name in state['checks']:
+                check_state = state['checks'][behavior_name]
+                log[f'{behavior_name}_check_confidence_activation'].append(check_state.get('confidence_activation', 0.0))
+                log[f'{behavior_name}_check_confidence_activity'].append(check_state.get('confidence_activity', 0.0))
+                log[f'{behavior_name}_check_intention_activation'].append(check_state.get('intention_activation', 0.0))
+                log[f'{behavior_name}_check_intention_activity'].append(check_state.get('intention_activity', 0.0))
+                log[f'{behavior_name}_check_confidence_low'].append(1.0 if check_state.get('confidence_low', False) else 0.0)
             else:
-                # Regular behavior with intention/CoS
-                signals.append((f"{behavior_id}_intention_activation",
-                                f"Intention {behavior_id.replace('_', ' ').title()} (activation)", "-"))
-                signals.append(
-                    (f"{behavior_id}_cos_activation", f"CoS {behavior_id.replace('_', ' ').title()} (activation)", "-"))
-                signals.append((f"{behavior_id}_intention_activity",
-                                f"Intention {behavior_id.replace('_', ' ').title()} (activity)", "--"))
-                signals.append(
-                    (f"{behavior_id}_cos_activity", f"CoS {behavior_id.replace('_', ' ').title()} (activity)", "--"))
+                log[f'{behavior_name}_check_confidence_activation'].append(0.0)
+                log[f'{behavior_name}_check_confidence_activity'].append(0.0)
+                log[f'{behavior_name}_check_intention_activation'].append(0.0)
+                log[f'{behavior_name}_check_intention_activity'].append(0.0)
+                log[f'{behavior_name}_check_confidence_low'].append(0.0)
+    
+    # Log step number
+    log['steps'].append(step)
 
-        plot_data.append((title, signals))
 
-    # Create the plots
-    fig, axes = plt.subplots(len(plot_data), 1, figsize=(12, 22), sharex=True)
+def plot_logs(log, steps, behavior_chain):
+    """
+    Updated plotting function that adapts to the behavior chain structure.
+    
+    Args:
+        log: Dictionary containing logged data
+        steps: Number of simulation steps
+        behavior_chain: List of behavior dictionaries
+    """
+    num_behaviors = len(behavior_chain)
+    fig, axes = plt.subplots(3, num_behaviors, figsize=(6 * num_behaviors, 12))
+    
+    # Handle single behavior case
+    if num_behaviors == 1:
+        axes = axes.reshape(-1, 1)
+    
+    fig.suptitle('Behavior Chain Dynamics', fontsize=16)
+    
+    time_steps = list(range(steps))
+    
+    # Plot each behavior
+    for col, level in enumerate(behavior_chain):
+        behavior_name = level['name']
+          
+        # Row 1: Intention + CoS (Activation & Activity combined)
+        axes[0, col].plot(time_steps, log[f'{behavior_name}_intention_activation'][:steps], 
+                         'b--', label='Intention Activation', linewidth=2, alpha=0.7)
+        axes[0, col].plot(time_steps, log[f'{behavior_name}_intention_activity'][:steps], 
+                         'b-', label='Intention Activity', linewidth=2)
+        axes[0, col].plot(time_steps, log[f'{behavior_name}_cos_activation'][:steps], 
+                         'r--', label='CoS Activation', linewidth=2, alpha=0.7)
+        axes[0, col].plot(time_steps, log[f'{behavior_name}_cos_activity'][:steps], 
+                         'r-', label='CoS Activity', linewidth=2)
+        axes[0, col].set_title(f'{behavior_name.title()} - Intention & CoS', fontsize=14)
+        axes[0, col].set_ylabel('Value', fontsize=12)
+        axes[0, col].legend()
+        axes[0, col].grid(True, alpha=0.3)
+        axes[0, col].set_ylim(-6, 6)
+        
+        # Row 2: Precondition Node (Activation & Activity)
+        axes[1, col].plot(time_steps, log[f'{behavior_name}_precond_activation'][:steps], 
+                         'g--', label='Precond Activation', linewidth=2, alpha=0.7)
+        axes[1, col].plot(time_steps, log[f'{behavior_name}_precond_activity'][:steps], 
+                         'g-', label='Precond Activity', linewidth=2)
+        axes[1, col].set_title(f'{behavior_name.title()} - Precondition', fontsize=14)
+        axes[1, col].set_ylabel('Value', fontsize=12)
+        axes[1, col].legend()
+        axes[1, col].grid(True, alpha=0.3)
+        axes[1, col].set_ylim(-6, 6)
+        
+        # Row 3: Check Behavior (Confidence & Intention nodes)
+        axes[2, col].plot(time_steps, log[f'{behavior_name}_check_confidence_activation'][:steps], 
+                         'orange', linestyle='--', label='Confidence Activation', linewidth=2, alpha=0.7)
+        axes[2, col].plot(time_steps, log[f'{behavior_name}_check_confidence_activity'][:steps], 
+                         'orange', label='Confidence Activity', linewidth=2)
+        axes[2, col].plot(time_steps, log[f'{behavior_name}_check_intention_activation'][:steps], 
+                         'purple', linestyle='--', label='Check Intention Activation', linewidth=2, alpha=0.7)
+        axes[2, col].plot(time_steps, log[f'{behavior_name}_check_intention_activity'][:steps], 
+                         'purple', label='Check Intention Activity', linewidth=2)
+        axes[2, col].set_title(f'{behavior_name.title()} - Check Behavior', fontsize=14)
+        axes[2, col].set_xlabel('Time Steps', fontsize=12)
+        axes[2, col].set_ylabel('Value', fontsize=12)
+        axes[2, col].legend()
+        axes[2, col].grid(True, alpha=0.3)
+        axes[2, col].set_ylim(-6, 6)
 
-    for ax, (title, signals) in zip(axes, plot_data):
-        for key, label, style in signals:
-            ax.plot(ts, log[key], style, label=label)
-        ax.set_ylabel("Value")
-        ax.set_title(title)
-        ax.legend(loc="upper right")
-        ax.grid(True, alpha=0.3)
-
-    axes[-1].set_xlabel("Step")
     plt.tight_layout()
     plt.show()

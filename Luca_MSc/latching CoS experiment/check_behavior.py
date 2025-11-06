@@ -74,15 +74,9 @@ class CheckBehavior(nn.Module):
         intention_activation, intention_activity = self.intention(intention_input)
         confidence_activation, confidence_activity = self.confidence(confidence_input)
 
-        # Update behavior state based on field activities
-        confidence_active = float(confidence_activity) > 0.7
-
-        # Update behavior state
-        self.confidence_low = confidence_active
 
         # Return current behavior state
         return {
-            'confidence_low': self.confidence_low,
             'intention_activation': float(intention_activation.detach()),
             'intention_activity': float(intention_activity.detach()),
             'confidence_activation': float(confidence_activation.detach()),
