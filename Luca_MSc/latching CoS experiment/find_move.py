@@ -19,12 +19,12 @@ from find_int import ElementaryBehavior_IntentionCoupling
 from check_found import SanityCheckBehavior
 
 from helper_functions import nodes_list, initalize_log, update_log, plot_logs, move_object
+import behavior_config
 
 class FindMoveBehavior_Experimental():
     def __init__(self, behaviors=list):
 
         self.initialize_nodes_and_behaviors(behaviors)
-
 
         ## Behavior chain with all node information
         # Initialize shared structures
@@ -40,33 +40,9 @@ class FindMoveBehavior_Experimental():
             for i, name in enumerate(behaviors)
         ]
 
-        # Add additional behavior chain info specific to each behavior
+        # Add additional behavior chain info specific to each behavior - imported from behavior_config
         for level in self.behavior_chain:
-            if level['name'] == 'find':
-                level.update({
-                    'interactor_type': 'perception',
-                    'continuous_method': 'find_object_continuous',
-                    'service_method': 'find_object_service',
-                    'service_args_func': lambda interactors, target_name: (target_name,)
-                })
-            elif level['name'] == 'move':
-                level.update({
-                    'interactor_type': 'movement',
-                    'continuous_method': 'move_to_continuous',
-                    'service_method': 'move_to_service',
-                    'service_args_func': lambda interactors, target_name: (
-                        interactors.perception.target_states.get(target_name, {}).get('location'),
-                    )
-                })
-            elif level['name'] == 'check_reach':
-                level.update({
-                    'interactor_type': 'gripper',
-                    'continuous_method': 'reach_check_continuous',
-                    'service_method': 'reach_check_service',
-                    'service_args_func': lambda interactors, target_name: (
-                        interactors.perception.target_states.get(target_name, {}).get('location'),
-                    )
-                })
+            level.update(behavior_config.BEHAVIOR_CONFIG[level['name']])
         
         # Setup connections using behavior chain information
         self.setup_connections()
@@ -206,7 +182,7 @@ class FindMoveBehavior_Experimental():
 # Example usage
 if __name__ == "__main__":
 
-    find_move = FindMoveBehavior_Experimental(behaviors=['find', 'move', 'check_reach'])
+    find_move = FindMoveBehavior_Experimental(behaviors=['find', 'move', 'check_reach', 'reach_for', 'grab'])
     # Log all activations and activities for plotting
     log = initalize_log(find_move.behavior_chain)
 
@@ -214,7 +190,7 @@ if __name__ == "__main__":
     visualize = False
     if visualize:
         matplotlib.use('TkAgg')  # Use TkAgg backend which supports animation better
-        visualizer = RobotSimulationVisualizer()
+        visualizer = RobotSimulationVisualizer(behavior_chain=find_move.behavior_chain)
         simulation_states = []
 
 

@@ -29,25 +29,26 @@ class PerceptionInteractor:
             
     def find_object_service(self, name):
         """Service call for sanity checks - one-time query"""
-        target_found, location = self._find_object_internal(name)
-        self._update_and_publish_state(name, target_found, location)
+        target_found, location, angle = self._find_object_internal(name)
+        self._update_and_publish_state(name, target_found, location, angle)
         
-        return target_found, location
+        return target_found, location, angle
         
     def find_object_continuous(self, name, requesting_behavior):
         """Continuous publisher for active behaviors"""
-        target_found, location = self._find_object_internal(name)
-        self._update_and_publish_state(name, target_found, location, requesting_behavior)
+        target_found, location, angle = self._find_object_internal(name)
+        self._update_and_publish_state(name, target_found, location, angle, requesting_behavior)
         
-        return target_found, location
+        return target_found, location, angle
     
-    def _update_and_publish_state(self, name, target_found, location, requesting_behavior=None):
+    def _update_and_publish_state(self, name, target_found, location, angle, requesting_behavior=None):
         """Common logic for updating shared state and publishing CoS"""
         
         # Update shared target state for other interactors
         self.target_states[name] = {
             'found': target_found,
             'location': location,
+            'angle': angle,
             'last_updated': time.time()
         }
         
@@ -76,12 +77,12 @@ class PerceptionInteractor:
             self.tracking_loss_remaining -= 1
             if self.tracking_loss_remaining <= 0:
                 self.in_tracking_loss = False
-            return False, None
+            return False, None, None
         
         # Normal detection logic
         if name in self.objects and self.search_attempts >= 3:
-            return True, self.objects[name]['location']
-        return False, None
+            return True, self.objects[name]['location'], self.objects[name]['angle']
+        return False, None, None
 
     def register_object(self, name, location, angle=torch.tensor([0.0, 0.0, 0.0])):
         """Register or update an object's location and angle."""
@@ -318,6 +319,104 @@ class GripperInteractor:
         else:
             # Service call
             # For sanity checks, the check behavior will handle CoS publishing separately
+            pass
+
+    def reach_for_continuous(self, target_location, requesting_behavior):   
+        """Continuous publisher for active behaviors"""
+        motor_cmd = self.gripper_move_towards(target_location)
+        at_target = self.gripper_is_at(target_location)
+        self._update_and_publish_state(target_location, at_target, requesting_behavior)
+        return at_target, self.get_position(), motor_cmd
+    
+    def reach_for_service(self, target_location):
+        """Service call for sanity checks - one-time query"""
+        motor_cmd = self.gripper_move_towards(target_location)
+        at_target = self.gripper_is_at(target_location)
+        self._update_and_publish_state(target_location, at_target)
+        return at_target, self.get_position(), motor_cmd
+    
+    ## Gripper interactors for grabbing - consists of orient, open, fine_reach, close, has_object check (as final CoS driver)
+    def grab_continuous(self, target_location, target_orientation, requesting_behavior):
+        """Continuous publisher for active behaviors - full grab sequence"""
+        motor_cmd_orient = None
+        motor_cmd_reach = None
+        grabbed = False
+
+        # First orient gripper to target if needed
+        if not self.is_oriented(target_orientation):
+            motor_cmd_orient = self.gripper_rotate_towards(target_orientation)
+
+            # Update shared state - not grabbed yet, still orienting
+            self._update_and_publish_grab_state(target_location, target_orientation, grabbed, requesting_behavior)
+            return grabbed, self.get_position(), motor_cmd_orient, motor_cmd_reach
+
+        # Open gripper if needed, then reach
+        if not self.is_open and not self.gripper_is_at(target_location):
+            self.open_gripper()
+            # Update shared state - not grabbed yet, but oriented
+            self._update_and_publish_grab_state(target_location, target_orientation, grabbed, requesting_behavior)
+            return grabbed, self.get_position(), motor_cmd_orient, motor_cmd_reach
+
+        # Move gripper to target location - fine reaching!
+        if not self.gripper_is_at(target_location):
+            motor_cmd_reach = self.gripper_move_towards(target_location)
+            # Update shared state - not grabbed yet, still reaching
+            self._update_and_publish_grab_state(target_location, target_orientation, grabbed, requesting_behavior)
+            return grabbed, self.get_position(), motor_cmd_orient, motor_cmd_reach
+        
+        # Once at target, close gripper
+        if self.is_open:
+            self.close_gripper()
+            # Update shared state - not grabbed yet, just closed
+            self._update_and_publish_grab_state(target_location, target_orientation, grabbed, requesting_behavior)
+            return grabbed, self.get_position(), motor_cmd_orient, motor_cmd_reach
+        
+        # Finally, check if object is held
+        grabbed = self.has_object(gripper_position=self.get_position(), object_position=target_location)
+
+        print(grabbed)
+
+        # Update shared state with final grab result
+        self._update_and_publish_grab_state(target_location, target_orientation, grabbed, requesting_behavior)
+    
+        return grabbed, self.get_position(), motor_cmd_orient, motor_cmd_reach
+
+    def grab_service(self, target_location, target_orientation):
+        """Service call for sanity checks - one-time query"""
+        # For service calls, just check current state without executing actions
+        at_target = self.gripper_is_at(target_location)
+        oriented = self.is_oriented(target_orientation)
+        grabbed = False
+        
+        if at_target and oriented and not self.is_open:
+            grabbed = self.has_object(gripper_position=self.get_position(), object_position=target_location)
+        
+        self._update_and_publish_grab_state(target_location, target_orientation, grabbed)
+        return grabbed, self.get_position(), None, None
+
+    def _update_and_publish_grab_state(self, target_location, target_orientation, grabbed, requesting_behavior=None):
+        """Common logic for updating shared state and publishing CoS for grab operations"""
+        
+        # Determine CoS value based on successful grab
+        cos_value = 5.0 if grabbed else 0.0
+        
+        # Update shared state
+        if requesting_behavior:
+            self.gripper_states[requesting_behavior] = {
+                'target_location': target_location,
+                'target_orientation': target_orientation,
+                'grabbed': grabbed,
+                'at_target': self.gripper_is_at(target_location),
+                'oriented': self.is_oriented(target_orientation),
+                'gripper_open': self.is_open,
+                'has_object': self._has_object,
+                'distance': self.calculate_distance(target_location),
+                'last_updated': time.time()
+            }
+            # Continuous call - publish to specific requesting behavior
+            self.publish_cos_state(requesting_behavior, cos_value)
+        else:
+            # Service call - check behavior will handle CoS publishing separately
             pass
 
     def normalize_orientation(self):
