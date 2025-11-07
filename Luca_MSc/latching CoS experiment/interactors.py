@@ -374,8 +374,6 @@ class GripperInteractor:
         # Finally, check if object is held
         grabbed = self.has_object(gripper_position=self.get_position(), object_position=target_location)
 
-        print(grabbed)
-
         # Update shared state with final grab result
         self._update_and_publish_grab_state(target_location, target_orientation, grabbed, requesting_behavior)
     
@@ -580,6 +578,55 @@ class GripperInteractor:
         self.gripper_offset = torch.tensor([0.0, 0.0, 0.5]) # gripper is slightly above base
         self.gripper_position = robot_position + self.gripper_offset
 
+
+class StateInteractor:
+    """Interactor for managing world state transitions and updates"""
+    
+    def __init__(self, perception_interactor, movement_interactor, gripper_interactor):
+        self.perception = perception_interactor
+        self.movement = movement_interactor
+        self.gripper = gripper_interactor
+        self.subscribers = {}
+    
+    def subscribe_cos_updates(self, behavior_name, callback):
+        """Subscribe to CoS state updates"""
+        self.subscribers[behavior_name] = callback
+    
+    def publish_cos_state(self, behavior_name, cos_value):
+        """Publish CoS state to subscribed behavior"""
+        if behavior_name in self.subscribers:
+            self.subscribers[behavior_name](cos_value)
+    
+    def update_target_location(self, target_name, new_location, requesting_behavior=None):
+        """Update target location in shared state"""
+        # Check if object "transport_target" is properly registered
+        if target_name in self.perception.target_states:
+            old_location = self.perception.target_states[target_name].get('location')
+            self.perception.target_states[target_name]['location'] = new_location
+            
+            print(f"[STATE] Updated {target_name} location: {old_location} → {new_location}")
+            
+            return True, new_location
+        return False, None
+    
+    def update_object_property(self, object_name, property_name, new_value, requesting_behavior=None):
+        """Update object property in perception system"""
+        if object_name in self.perception.objects:
+            old_value = self.perception.objects[object_name].get(property_name)
+            self.perception.objects[object_name][property_name] = new_value
+            
+            print(f"[STATE] Updated {object_name}.{property_name}: {old_value} → {new_value}")
+            
+            return True, new_value
+        return False, None
+    
+    def announce_message(self, message, requesting_behavior=None):
+        """Announce a message (could interface with speech system, logging, etc.)"""
+        print(f"[ANNOUNCEMENT] {message}")
+
+        return True, message
+
+
 class RobotInteractors:
     """Facade that provides access to all interactors."""
 
@@ -587,6 +634,7 @@ class RobotInteractors:
         self.movement = MovementInteractor()
         self.gripper = GripperInteractor(get_robot_position=self.movement.get_position)
         self.perception = PerceptionInteractor(get_robot_position=self.movement.get_position)
+        self.state = StateInteractor(self.perception, self.movement, self.gripper)
 
     def reset(self):
         """Reset all interactors."""
