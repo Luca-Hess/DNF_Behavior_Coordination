@@ -34,7 +34,7 @@ class SanityCheckBehavior(CheckBehavior):
             'sanity_check_triggered': sanity_check_triggered
         }
     
-    def process_sanity_result(self, result, check_failed_func):
+    def process_sanity_result(self, result, check_failed_func, behavior_name):
         """Process the result of the sanity check and update CoS input to the associated elementary behavior accordingly"""
         if check_failed_func(result):
             # Check failed - set CoS input to 0
@@ -45,8 +45,8 @@ class SanityCheckBehavior(CheckBehavior):
             cos_value = 5.0
 
         # Update CoS input of the associated elementary behavior
-        if self.interactor and self.behavior_name:
-            self.interactor.publish_cos_state(self.behavior_name, cos_value)
+        if self.interactor and behavior_name:
+            self.interactor.publish_cos_state(behavior_name, cos_value)
 
         # Update internal CoS state
         self.cos_input = cos_value

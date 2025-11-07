@@ -23,7 +23,9 @@ from helper_functions import nodes_list, initalize_log, update_log, plot_logs
 import behavior_config
 
 class FindMoveBehavior_Experimental():
-    def __init__(self, behaviors=list):
+    def __init__(self, behaviors=list, args=dict()):
+        self.behavior_args = args
+
 
         self.initialize_nodes_and_behaviors(behaviors)
 
@@ -114,6 +116,10 @@ class FindMoveBehavior_Experimental():
         
     def setup_subscriptions(self, interactors):
         """Setup pub/sub connections using behavior chain data"""
+        # Initialize StateInteractor based on behavior chain
+        interactors.state.initialize_from_behavior_chain(self.behavior_chain, self.behavior_args)
+    
+
         # Main behavior subscribes to interactor CoS updates
         for level in self.behavior_chain:
             interactor = getattr(interactors, level['interactor_type'])
@@ -125,8 +131,7 @@ class FindMoveBehavior_Experimental():
             level['check'].set_interactor(interactor)
     
 
-    # Problem here: this is quite general, but still directly relies on a target_name being provided
-    def execute_step(self, interactors, target_name, external_input=6.0):
+    def execute_step(self, interactors, external_input=6.0):
         # Determine which behavior is currently active
         active_behavior = self._get_active_behavior()
 
@@ -137,7 +142,7 @@ class FindMoveBehavior_Experimental():
             continuous_method = getattr(interactor, level['continuous_method'])
             
             # Get service args and call continuous method
-            service_args = level['service_args_func'](interactors, target_name)
+            service_args = level['service_args_func'](interactors, self.behavior_args, level['name'])
             if service_args[0] is not None:  # Only call if we have valid args
                 continuous_method(*service_args, level['name'])
                 
@@ -153,8 +158,7 @@ class FindMoveBehavior_Experimental():
             if (level.get('on_success') and 
                 states[level['name']].get('cos_active', False) and
                 behavior_name not in self.success_actions_executed):
-                print(f"[SUCCESS] Behavior '{behavior_name}' succeeded. Processing success actions...")
-                self._process_success_actions(level['on_success'], interactors, target_name)
+                self._process_success_actions(level['on_success'], interactors, self.behavior_args)
                 self.success_actions_executed.add(behavior_name)
 
 
@@ -206,15 +210,14 @@ class FindMoveBehavior_Experimental():
             if check_state.get('sanity_check_triggered', False):
                 interactor = getattr(interactors, level['interactor_type'])
                 service_method = getattr(interactor, level['service_method'])
-                service_args = level['service_args_func'](interactors, target_name)
+                service_args = level['service_args_func'](interactors, self.behavior_args, level['name'])
                 
                 if service_args[0] is not None:
                     # Single service call to verify current state
                     result = service_method(*service_args)
                     
                     # Check behavior processes result and updates its own CoS input
-                    level['check'].process_sanity_result(result, level['check_failed_func'])
-
+                    level['check'].process_sanity_result(result, level['check_failed_func'], level['name'])
             
         return states
         
@@ -225,7 +228,7 @@ class FindMoveBehavior_Experimental():
                 return level['name']
         return None
     
-    def _process_success_actions(self, actions, interactors, target_name):
+    def _process_success_actions(self, actions, interactors, behavior_args):
         """Process declarative success actions for a behavior."""
         for action in actions:
             action_type = action.get('action')
@@ -235,7 +238,7 @@ class FindMoveBehavior_Experimental():
                 config = behavior_config.ACTION_BEHAVIOR_CONFIG[action_type]
                 interactor = getattr(interactors, config['interactor_type'])
                 service_method = getattr(interactor, config['service_method'])
-                service_args = config['service_args_func'](interactors, target_name, action)
+                service_args = config['service_args_func'](interactors, behavior_args, action)
                 
                 try:
                     result = service_method(*service_args)
@@ -258,7 +261,14 @@ class FindMoveBehavior_Experimental():
 # Example usage
 if __name__ == "__main__":
 
-    find_move = FindMoveBehavior_Experimental(behaviors=['find', 'move', 'check_reach', 'reach_for', 'grab_transport'])
+    find_move = FindMoveBehavior_Experimental(
+        behaviors=['find', 'move', 'check_reach', 'reach_for', 'grab_transport'],
+        args={ 
+            'target_object': 'cup',
+            'drop_off_target': 'transport_target'
+        })
+    
+    
     # Log all activations and activities for plotting
     log = initalize_log(find_move.behavior_chain)
 
@@ -297,7 +307,7 @@ if __name__ == "__main__":
 
     for step in range(1200):
         # Execute find behavior
-        state = find_move.execute_step(interactors, "cup", external_input)
+        state = find_move.execute_step(interactors, external_input)
 
         # Update the visualizer
         if visualize:
@@ -305,7 +315,6 @@ if __name__ == "__main__":
 
         # Store logs
         update_log(log, state, step, find_move.behavior_chain)
-
 
         # if i == 450:
         #     # Move the cup to test tracking and recovery
@@ -319,7 +328,9 @@ if __name__ == "__main__":
         i += 1
     
     print('Final Position:', interactors.movement.get_position())
-
+    print('Gripper Position:', interactors.gripper.get_position())
+    print('Object Position:', interactors.perception.objects['cup']['location'])
+    
     # Plotting the activities of all nodes over time
     if not visualize:
         plot_logs(log, step, find_move.behavior_chain)  # or steps=500 if you always run 500 steps

@@ -130,6 +130,9 @@ class MovementInteractor:
         """Continuous publisher for active behaviors"""
         # Execute movement step
         self.move_towards(target_location)
+
+        #print(target_location)
+
         arrived, position = self._check_arrival_internal(target_location)
         self._update_and_publish_state(target_location, arrived, position, requesting_behavior)
         return arrived, position
@@ -249,13 +252,15 @@ class GripperInteractor:
         self.gripper_orientation = torch.tensor([0.0, 0.0, 0.0])
         self.normalize_orientation()
 
-        self.is_open = is_open
+        self.gripper_is_open = is_open
+        self.initial_approach = True  # for grab sequence
         self._has_object = has_object_state
         self.wait_counter = 0  # for simulating object grasp delay
 
         # Pub/Sub state
         self.subscribers = {}  # {behavior_name: callback}
         self.gripper_states = {}  # Shared state across behaviors
+        self.grabbed_objects = {}  # Track grabbed objects per behavior
 
         # Robot position reference
         if get_robot_position is None:
@@ -336,7 +341,7 @@ class GripperInteractor:
         return at_target, self.get_position(), motor_cmd
     
     ## Gripper interactors for grabbing - consists of orient, open, fine_reach, close, has_object check (as final CoS driver)
-    def grab_continuous(self, target_location, target_orientation, requesting_behavior):
+    def grab_continuous(self, target_name, target_location, target_orientation, requesting_behavior):
         """Continuous publisher for active behaviors - full grab sequence"""
         motor_cmd_orient = None
         motor_cmd_reach = None
@@ -351,8 +356,8 @@ class GripperInteractor:
             return grabbed, self.get_position(), motor_cmd_orient, motor_cmd_reach
 
         # Open gripper if needed, then reach
-        if not self.is_open and not self.gripper_is_at(target_location):
-            self.open_gripper()
+        if not self.gripper_is_open and self.initial_approach:
+            self.initial_approach = False
             # Update shared state - not grabbed yet, but oriented
             self._update_and_publish_grab_state(target_location, target_orientation, grabbed, requesting_behavior)
             return grabbed, self.get_position(), motor_cmd_orient, motor_cmd_reach
@@ -364,8 +369,9 @@ class GripperInteractor:
             self._update_and_publish_grab_state(target_location, target_orientation, grabbed, requesting_behavior)
             return grabbed, self.get_position(), motor_cmd_orient, motor_cmd_reach
         
+
         # Once at target, close gripper
-        if self.is_open:
+        if self.gripper_is_open:
             self.close_gripper()
             # Update shared state - not grabbed yet, just closed
             self._update_and_publish_grab_state(target_location, target_orientation, grabbed, requesting_behavior)
@@ -374,21 +380,24 @@ class GripperInteractor:
         # Finally, check if object is held
         grabbed = self.has_object(gripper_position=self.get_position(), object_position=target_location)
 
+        if grabbed:
+            self.grabbed_objects[target_name] = self.get_position()
+
         # Update shared state with final grab result
         self._update_and_publish_grab_state(target_location, target_orientation, grabbed, requesting_behavior)
     
         return grabbed, self.get_position(), motor_cmd_orient, motor_cmd_reach
 
-    def grab_service(self, target_location, target_orientation):
+    def grab_service(self, target_name, target_location, target_orientation):
         """Service call for sanity checks - one-time query"""
         # For service calls, just check current state without executing actions
         at_target = self.gripper_is_at(target_location)
         oriented = self.is_oriented(target_orientation)
         grabbed = False
-        
-        if at_target and oriented and not self.is_open:
+
+        if at_target and oriented and not self.gripper_is_open:
             grabbed = self.has_object(gripper_position=self.get_position(), object_position=target_location)
-        
+
         self._update_and_publish_grab_state(target_location, target_orientation, grabbed)
         return grabbed, self.get_position(), None, None
 
@@ -417,6 +426,7 @@ class GripperInteractor:
             # Service call - check behavior will handle CoS publishing separately
             pass
 
+
     def normalize_orientation(self):
         """Normalize orientation angles to the range [-π, π]."""
         self.gripper_orientation = (self.gripper_orientation + torch.pi) % (2 * torch.pi) - torch.pi
@@ -426,7 +436,23 @@ class GripperInteractor:
         robot_position = self._get_robot_position()
         self.gripper_position = robot_position + self.gripper_offset
 
+        self._update_grabbed_object_positions()
+
         return self.gripper_position.clone()
+
+    def _update_grabbed_object_positions(self):
+        """Update positions of grabbed objects to follow gripper"""
+        for object_name, grab_offset in self.grabbed_objects.items():
+            # Update in perception.objects (the main object registry)
+            if hasattr(self, '_robot_interactors') and object_name in self._robot_interactors.perception.objects:
+                new_position = self.gripper_position
+                self._robot_interactors.perception.objects[object_name]['location'] = new_position
+            
+            # Update in perception.target_states (if it exists there too)
+            if hasattr(self, '_robot_interactors') and object_name in self._robot_interactors.perception.target_states:
+                new_position = self.gripper_position
+                self._robot_interactors.perception.target_states[object_name]['location'] = new_position
+
 
     def get_orientation(self):
         """ Get the current gripper orientation."""
@@ -447,19 +473,21 @@ class GripperInteractor:
 
     def is_open(self):
         """Check if gripper is open."""
-        return self.is_open
+        return self.gripper_is_open
 
     def open_gripper(self):
         """Open the gripper."""
-        self.is_open = True
+        self.gripper_is_open = True
+        
+        # Release any grabbed objects
+        self.grabbed_objects.clear()
 
-        return self.is_open
+        return self.gripper_is_open
 
     def close_gripper(self):
         """Close the gripper."""
-        self.is_open = False
-
-        return self.is_open
+        self.gripper_is_open = False
+        return self.gripper_is_open
 
     def has_object(self, gripper_position=None, object_position=None):
         """Check if gripper is holding an object (closed)."""
@@ -474,14 +502,14 @@ class GripperInteractor:
             distance = torch.norm(gripper_position - object_position)
             proximity_check = distance <= 0.1
 
-        if not self.is_open and proximity_check:
-            self.wait_counter += 1
-            # Only set to True if both conditions are met
-            if self.wait_counter >= 10:
+        if not self.gripper_is_open and proximity_check:
+            # self.wait_counter += 1
+            # # Only set to True if both conditions are met
+            # if self.wait_counter >= 10:
                 self._has_object = True
         else:
             # Reset counter if gripper opens
-            self.wait_counter = 0
+            # self.wait_counter = 0
             self._has_object = False
 
         return self._has_object
@@ -586,45 +614,82 @@ class StateInteractor:
         self.perception = perception_interactor
         self.movement = movement_interactor
         self.gripper = gripper_interactor
-        self.subscribers = {}
-    
-    def subscribe_cos_updates(self, behavior_name, callback):
-        """Subscribe to CoS state updates"""
-        self.subscribers[behavior_name] = callback
-    
-    def publish_cos_state(self, behavior_name, cos_value):
-        """Publish CoS state to subscribed behavior"""
-        if behavior_name in self.subscribers:
-            self.subscribers[behavior_name](cos_value)
-    
-    def update_target_location(self, target_name, new_location, requesting_behavior=None):
-        """Update target location in shared state"""
-        # Check if object "transport_target" is properly registered
-        if target_name in self.perception.target_states:
-            old_location = self.perception.target_states[target_name].get('location')
-            self.perception.target_states[target_name]['location'] = new_location
-            
-            print(f"[STATE] Updated {target_name} location: {old_location} → {new_location}")
-            
-            return True, new_location
-        return False, None
-    
-    def update_object_property(self, object_name, property_name, new_value, requesting_behavior=None):
-        """Update object property in perception system"""
-        if object_name in self.perception.objects:
-            old_value = self.perception.objects[object_name].get(property_name)
-            self.perception.objects[object_name][property_name] = new_value
-            
-            print(f"[STATE] Updated {object_name}.{property_name}: {old_value} → {new_value}")
-            
-            return True, new_value
-        return False, None
-    
-    def announce_message(self, message, requesting_behavior=None):
-        """Announce a message (could interface with speech system, logging, etc.)"""
-        print(f"[ANNOUNCEMENT] {message}")
 
-        return True, message
+        # Dynamic target state - populated based on behavior chain
+        self.behavior_targets = {}  # {behavior_name: current_target_name}
+        self.target_args = {}       # Store original args for reference
+    
+    def initialize_from_behavior_chain(self, behavior_chain, args):
+        """Initialize targets dynamically based on the behavior chain and args"""
+        self.target_args = args.copy()
+        
+        # Analyze behavior chain to determine target requirements
+        for level in behavior_chain:
+            behavior_name = level['name']
+            interactor_type = level.get('interactor_type')
+            
+            # Set initial target based on behavior type and args
+            if interactor_type == 'perception':
+                # Perception behaviors (like 'find') use the primary target
+                self.behavior_targets[behavior_name] = args.get('target_object')
+                
+            elif interactor_type in ['movement', 'gripper']:
+                # Movement/gripper behaviors initially use the primary target
+                self.behavior_targets[behavior_name] = args.get('target_object')
+        
+        return True, self.behavior_targets.copy()
+    
+    def update_behavior_target(self, behavior_name, new_target_name):
+        """Update target for a specific behavior"""
+        old_target = self.behavior_targets.get(behavior_name)
+        self.behavior_targets[behavior_name] = new_target_name
+        
+        return True, new_target_name
+    
+    def update_multiple_behavior_targets(self, target_updates):
+        """Update targets for multiple behaviors at once"""
+        for behavior_name, new_target in target_updates.items():
+            if behavior_name in self.behavior_targets:
+                old_target = self.behavior_targets[behavior_name]
+                self.behavior_targets[behavior_name] = new_target
+        
+        return True, self.behavior_targets.copy()
+    
+    def get_behavior_target_name(self, behavior_name):
+        """Get the current target name for a behavior"""
+        target_name = self.behavior_targets.get(behavior_name)
+        return target_name
+    
+    def get_behavior_target_location(self, behavior_name):
+        """Get the current target location for a behavior"""
+        target_name = self.behavior_targets.get(behavior_name)
+        if target_name and target_name in self.perception.target_states:
+            location = self.perception.target_states[target_name]['location']
+            return location
+        
+        elif target_name and target_name in self.perception.objects:
+            location = self.perception.objects[target_name]['location']
+            return location
+
+        return None
+    
+    def get_behavior_target_info(self, behavior_name):
+        """Get full target info (location, angle) for a behavior"""
+        target_name = self.behavior_targets.get(behavior_name)
+        if target_name and target_name in self.perception.target_states:
+            info = self.perception.target_states[target_name]
+            location = info.get('location')
+            angle = info.get('angle')
+            return target_name, location, angle
+        
+        elif target_name and target_name in self.perception.objects:
+            info = self.perception.objects[target_name]
+            location = info.get('location')
+            angle = info.get('angle')
+            return target_name, location, angle
+
+        return None, None, None
+
 
 
 class RobotInteractors:
@@ -635,6 +700,11 @@ class RobotInteractors:
         self.gripper = GripperInteractor(get_robot_position=self.movement.get_position)
         self.perception = PerceptionInteractor(get_robot_position=self.movement.get_position)
         self.state = StateInteractor(self.perception, self.movement, self.gripper)
+
+        # Allow interactors to reference back to this facade if needed
+        self.movement._robot_interactors = self
+        self.gripper._robot_interactors = self
+        self.perception._robot_interactors = self
 
     def reset(self):
         """Reset all interactors."""
