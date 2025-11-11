@@ -131,8 +131,6 @@ class MovementInteractor:
         # Execute movement step
         self.move_towards(target_location)
 
-        #print(target_location)
-
         arrived, position = self._check_arrival_internal(target_location)
         self._update_and_publish_state(target_location, arrived, position, requesting_behavior)
         return arrived, position
@@ -239,7 +237,7 @@ class GripperInteractor:
             gain = 1.0,
             stop_threshold = 0.01,      # distance to consider "arrived"
             orient_threshold = 0.01,    # radians to consider "oriented"
-            max_reach = 2.0,            # max reach from robot base
+            max_reach = 2.5,            # max reach from robot base
             get_robot_position = None,  # anchor arm to robot base
             is_open = False,            # gripper state
             has_object_state = False          # whether gripper is holding an object
@@ -310,12 +308,15 @@ class GripperInteractor:
         # Determine CoS value based on reachability
         cos_value = 5.0 if reachable else 0.0
 
+        distance = float(torch.norm(target_location - self.gripper_position)) if target_location is not None else float('inf')
+
+
         # Update shared state
         if requesting_behavior:
             self.gripper_states[requesting_behavior] = {
                 'target_location': target_location,
                 'reachable': reachable,
-                'distance': self.calculate_distance(target_location),
+                'distance': distance,
                 'last_updated': time.time()
             }
             # Continuous call - publish to specific requesting behavior
@@ -335,10 +336,9 @@ class GripperInteractor:
     
     def reach_for_service(self, target_location):
         """Service call for sanity checks - one-time query"""
-        motor_cmd = self.gripper_move_towards(target_location)
         at_target = self.gripper_is_at(target_location)
         self._update_and_publish_state(target_location, at_target)
-        return at_target, self.get_position(), motor_cmd
+        return at_target, self.get_position(), None
     
     ## Gripper interactors for grabbing - consists of orient, open, fine_reach, close, has_object check (as final CoS driver)
     def grab_continuous(self, target_name, target_location, target_orientation, requesting_behavior):
@@ -398,6 +398,9 @@ class GripperInteractor:
         if at_target and oriented and not self.gripper_is_open:
             grabbed = self.has_object(gripper_position=self.get_position(), object_position=target_location)
 
+        if target_location == None or not at_target or not oriented or self.gripper_is_open:
+            grabbed = False
+
         self._update_and_publish_grab_state(target_location, target_orientation, grabbed)
         return grabbed, self.get_position(), None, None
 
@@ -407,6 +410,8 @@ class GripperInteractor:
         # Determine CoS value based on successful grab
         cos_value = 5.0 if grabbed else 0.0
         
+        distance = float(torch.norm(target_location - self.gripper_position)) if target_location is not None else float('inf')
+
         # Update shared state
         if requesting_behavior:
             self.gripper_states[requesting_behavior] = {
@@ -417,7 +422,7 @@ class GripperInteractor:
                 'oriented': self.is_oriented(target_orientation),
                 'gripper_open': self.is_open,
                 'has_object': self._has_object,
-                'distance': self.calculate_distance(target_location),
+                'distance': distance,
                 'last_updated': time.time()
             }
             # Continuous call - publish to specific requesting behavior
@@ -543,15 +548,6 @@ class GripperInteractor:
 
         return motor_cmd
 
-    def calculate_distance(self, target_location):
-        """Calculate distance from gripper to target."""
-        if target_location is None:
-            return float('inf')
-
-        self.get_position()  # updates self.gripper_position from robot + offset
-
-        distance = torch.norm(target_location - self.gripper_position)  # 3D distance
-        return float(distance)
 
     def gripper_is_at(self, target_location, thresh: float = 0.01) -> bool:
         """Arrival test within threshold."""
@@ -559,7 +555,7 @@ class GripperInteractor:
             return False
         threshold = self.stop_threshold if thresh is None else float(thresh)
 
-        return self.calculate_distance(target_location) <= threshold
+        return torch.norm(target_location - self.gripper_position) <= threshold
 
     def _direction_and_distance(self, target_location):
         """Internal: unit direction (3D) and distance."""

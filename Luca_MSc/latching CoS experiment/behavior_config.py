@@ -105,29 +105,4 @@ EXTENDED_BEHAVIOR_CONFIG = {
         ]
     }
 }
-
-# ACTION_BEHAVIOR_CONFIG = {
-#     'update_movement_target': {
-#         'interactor_type': 'state',
-#         'service_method': 'update_multiple_behavior_targets',
-#         'service_args_func': lambda interactors, args, action: (
-#             action['target_updates'](interactors, args),
-#         )
-#     }
-# }
-
-# EXTENDED_BEHAVIOR_CONFIG = {
-#     'grab_transport': {
-#         'extends': 'grab',
-#         'on_success': [
-#             {
-#                 'action': 'update_movement_target',
-#                 'target_updates': lambda interactors, args: {
-#                     'find': args.get('drop_off_target'),
-#                     'move': args.get('drop_off_target'),
-#                     # 'find' and 'grab' keep targeting original object
-#                 }
-#             }
-#         ]
-#     }
-# }
+# 

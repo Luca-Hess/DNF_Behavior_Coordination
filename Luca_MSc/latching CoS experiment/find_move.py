@@ -18,11 +18,11 @@ from find_int import ElementaryBehavior_IntentionCoupling
 
 from check_found import SanityCheckBehavior
 
-from helper_functions import nodes_list, initalize_log, update_log, plot_logs
+from helper_functions import nodes_list, initalize_log, update_log, plot_logs, animate_fixed_chain
 
 import behavior_config
 
-class FindMoveBehavior_Experimental():
+class BehaviorManager():
     def __init__(self, behaviors=list, args=dict()):
         self.behavior_args = args
 
@@ -33,15 +33,15 @@ class FindMoveBehavior_Experimental():
         self.success_actions_executed = set()
 
         ## Behavior chain with all node information
-        # Initialize shared structures
+        # Initialize shared structures - all behaviors share these
         self.behavior_chain = [
             {
-                'name': name,                                       # Behavior name string
+                'name': name,                                                                     # Behavior name string
                 'behavior': getattr(self, f"{self._get_base_behavior_name(name)}_behavior"),      # Elementary behavior
                 'check': getattr(self, f"check_{self._get_base_behavior_name(name)}"),            # Sanity check behavior
                 'precondition': getattr(self, f"{self._get_base_behavior_name(name)}_precond"),   # Precondition node
-                'has_next_precondition': i < len(behaviors) - 1,    # Last behavior has no next precondition
-                'check_failed_func': lambda result: not result[0]   # State of sanity check
+                'has_next_precondition': i < len(behaviors) - 1,                                  # Last behavior has no next precondition
+                'check_failed_func': lambda result: not result[0]                                 # State of sanity check
             }
             for i, name in enumerate(behaviors)
         ]
@@ -78,7 +78,12 @@ class FindMoveBehavior_Experimental():
 
 
     def _get_base_behavior_name(self, behavior_name):
-        """Get the base behavior name to use for potential extended behaviors."""
+        """
+        Get the base behavior name to use for potential extended behaviors.
+        Behaviors can have "supersets" that extend their functionality.
+        This function resolves to the base behavior name for initialization.
+        Example: "grab_transport" initializes the base "grab" behavior.
+        """
         if behavior_name in behavior_config.EXTENDED_BEHAVIOR_CONFIG:
             extended_config = behavior_config.EXTENDED_BEHAVIOR_CONFIG[behavior_name]
             return extended_config.get('extends', behavior_name)
@@ -218,6 +223,7 @@ class FindMoveBehavior_Experimental():
                     
                     # Check behavior processes result and updates its own CoS input
                     level['check'].process_sanity_result(result, level['check_failed_func'], level['name'])
+                    
             
         return states
         
@@ -261,7 +267,7 @@ class FindMoveBehavior_Experimental():
 # Example usage
 if __name__ == "__main__":
 
-    find_move = FindMoveBehavior_Experimental(
+    find_move = BehaviorManager(
         behaviors=['find', 'move', 'check_reach', 'reach_for', 'grab_transport'],
         args={ 
             'target_object': 'cup',
@@ -316,24 +322,17 @@ if __name__ == "__main__":
         # Store logs
         update_log(log, state, step, find_move.behavior_chain)
 
-        # if i == 450:
-        #     # Move the cup to test tracking and recovery
-        #     print(f"[Step {step}] Moving cup to test robustness...")
-        #     new_location = torch.tensor([8.0, 12.0, 1.8])
-        #     interactors.perception.objects["cup"]["location"] = new_location
-        #     # Optionally cause tracking loss
-        #     if hasattr(interactors.perception, 'cause_tracking_loss'):
-        #         interactors.perception.cause_tracking_loss("cup", duration=10)
-
         i += 1
     
     print('Final Position:', interactors.movement.get_position())
     print('Gripper Position:', interactors.gripper.get_position())
     print('Object Position:', interactors.perception.objects['cup']['location'])
-    
+
     # Plotting the activities of all nodes over time
     if not visualize:
         plot_logs(log, step, find_move.behavior_chain)  # or steps=500 if you always run 500 steps
+
+        #animate_fixed_chain(log, find_move.behavior_chain)
 
     # Create animation
     if visualize:

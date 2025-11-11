@@ -234,3 +234,137 @@ def plot_logs(log, steps, behavior_chain):
 
     plt.tight_layout()
     plt.show()
+
+
+import networkx as nx
+import matplotlib.pyplot as plt
+import matplotlib.animation as animation
+
+def animate_fixed_chain(log, behavior_chain):
+    G = nx.DiGraph()
+    fig, ax = plt.subplots(figsize=(12, 10))
+
+    # Predefine positions: behaviors in a horizontal chain
+    pos = {}
+    spacing = 15
+    for i, level in enumerate(behavior_chain):
+        x = i * spacing
+        pos[level['name']] = (x-3, 2)  # main behavior node
+        pos[f"{level['name']}_cos"] = (x+3, 2)
+        pos[f"{level['name']}_precond"] = (x+2, 2.5)
+        pos[f"{level['name']}_check"] = (x+2, 1.5)
+
+    # Add interactor nodes below (y = 0)
+    interactor_types = ['perception', 'movement', 'gripper', 'state']
+    # spacing_interactors = 10
+    for i, name in enumerate(interactor_types):
+        pos[name] = (i * spacing, 0)
+
+    # Example: what each interactor provides to others
+    provided_info = {
+        ('perception', 'movement'): ['target_location'],
+        ('perception', 'gripper'): ['target_location', 'target_orientation'],
+        ('state', 'movement'): ['current_targets'],
+        ('state', 'gripper'): ['current_targets'],
+    }
+    # Map behaviors to what they query from interactors
+    consumed_info = {
+        'perception': ['raw_sensor_data'],
+        'movement': ['target_location', 'current_targets'],
+        'gripper': ['target_location', 'target_orientation', 'current_targets'],
+        'state': ['status', 'external_commands'],
+    }
+
+    def update(frame):
+        ax.clear()
+        step = log['steps'][frame]
+        G.clear()
+
+        edges_to_curve_exc = []
+        edges_to_curve_inh = []
+
+        # Add nodes and edges for this step
+        for level in behavior_chain:
+            bname = level['name']
+            active = log[f'{bname}_intention_active'][frame] > 0.5
+            G.add_node(bname, active=active)
+
+            # Sub-nodes
+            G.add_node(f"{bname}_precond", active=log[f'{bname}_precond_active'][frame] > 0.5)
+            G.add_node(f"{bname}_cos", active=log[f'{bname}_cos_active'][frame] > 0.5)
+            G.add_node(f"{bname}_check", active=log[f'{bname}_check_confidence_activity'][frame] > 0.5)
+
+            # Connections
+            G.add_edge(bname, f"{bname}_cos", weight=5.0)
+            edges_to_curve_exc.append((bname, f"{bname}_cos"))
+
+            G.add_edge(f"{bname}_cos", bname, weight=6)
+            edges_to_curve_inh.append((f"{bname}_cos", bname))
+
+            G.add_edge(f"{bname}_cos", f"{bname}_precond", weight=6.0)
+            G.add_edge(f"{bname}_cos", f"{bname}_check", weight=5.0)
+
+            # Edge from intention to interactors
+            interactor_type = level.get('interactor_type', None)
+            if interactor_type:
+                method = level.get('continuous_method', '')
+                G.add_edge(bname, interactor_type, label=method, weight=2.0)
+                cos_val = log.get(f'{bname}_cos_activity', [0.0])[frame]
+                G.add_edge(interactor_type, f"{bname}_cos", label=f'CoS: {cos_val:.2f}', weight=2.0)
+
+        # Add interactor nodes and dynamic info
+        for name in interactor_types:
+            G.add_node(name, layer='interactor')
+            consumed = ', '.join(consumed_info.get(name, []))
+            G.nodes[name]['info'] = f"Consumes: {consumed}"
+
+        # Collect interactor edges
+        interactor_edges = [(u, v) for u, v in G.edges if u in interactor_types and v in interactor_types]
+
+        # Precondition → next intention
+        for i, level in enumerate(behavior_chain[:-1]):
+            next_level = behavior_chain[i+1]
+            G.add_edge(f"{level['name']}_precond", next_level['name'], weight=6.0)
+
+        # Draw behavior nodes with activity coloring
+        behavior_nodes = [n for n in G.nodes if not n in interactor_types]
+        colors = ["green" if G.nodes[n].get("active") else "gray" for n in behavior_nodes]
+        nx.draw_networkx_nodes(G, pos, nodelist=behavior_nodes, node_color=colors, ax=ax)
+        nx.draw_networkx_labels(G, pos, labels={n: n for n in behavior_nodes}, ax=ax)
+
+        # Draw interactor nodes separately
+        nx.draw_networkx_nodes(G, pos, nodelist=interactor_types, node_color='lightblue', node_size=1500, ax=ax)
+        nx.draw_networkx_labels(G, pos, labels={n: n for n in interactor_types}, font_size=12, ax=ax)
+
+        # Draw normal edges
+        normal_edges = [(u, v) for u, v in G.edges
+                        if (u, v) not in edges_to_curve_exc + edges_to_curve_inh + interactor_edges]
+        nx.draw_networkx_edges(G, pos, edgelist=normal_edges,
+                            width=[G[u][v].get("weight", 1)/2 for u, v in normal_edges],
+                            edge_color="green", ax=ax)
+
+        # Draw curved edges
+        nx.draw_networkx_edges(G, pos, edgelist=edges_to_curve_exc,
+                               width=3, connectionstyle="arc3,rad=0.3",
+                               edge_color="green", ax=ax)
+        nx.draw_networkx_edges(G, pos, edgelist=edges_to_curve_inh,
+                               width=3, connectionstyle="arc3,rad=0.3",
+                               edge_color="red", ax=ax)
+        # Draw edge labels
+        edge_labels = {(u, v): d['label'].replace('_continuous', '')
+               for u, v, d in G.edges(data=True) if d.get('label')}
+        nx.draw_networkx_edge_labels(G, pos, edge_labels=edge_labels,
+                                    font_color='darkred', font_size=10, ax=ax)
+
+        nx.draw_networkx_edge_labels(G, pos, edge_labels=edge_labels, font_color='darkred', font_size=10, ax=ax)
+
+        # Annotate interactor info below nodes
+        for interactor in interactor_types:
+            x, y = pos[interactor]
+            ax.text(x, y-0.5, G.nodes[interactor].get('info', ''),
+                    ha='center', va='top', fontsize=10, color='gray')
+
+        ax.set_title(f"Step {step}")
+
+    ani = animation.FuncAnimation(fig, update, frames=len(log['steps']), interval=100)
+    plt.show()
