@@ -11,14 +11,16 @@ import matplotlib
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
 
+from DNF_torch.field import Field
+
 from SimulationVisualizer import RobotSimulationVisualizer
 from interactors import RobotInteractors
 
-from find_int import ElementaryBehavior_IntentionCoupling
+from elementary_behavior_interface import ElementaryBehaviorInterface
 
-from check_found import SanityCheckBehavior
+from sanity_check import SanityCheckBehavior
 
-from helper_functions import nodes_list, initalize_log, update_log, plot_logs, animate_fixed_chain
+from helper_functions import initalize_log, update_log, plot_logs, animate_fixed_chain
 
 import behavior_config
 
@@ -46,17 +48,45 @@ class BehaviorManager():
             for i, name in enumerate(behaviors)
         ]
 
-        # Add additional behavior chain info specific to each behavior - imported from behavior_config
+        # Add additional behavior chain info specific to each behavior - defined in behavior_config
         for level in self.behavior_chain:
             level.update(self._resolve_behavior_config(level['name']))
         
-        # Setup connections using behavior chain information
+        # Setup DNF node connections according to behavior chain
         self.setup_connections()
+
+
+    def nodes_list(self, node_names = list, type_str="precond", params=dict()):
+        """
+        Create multiple (precondition) nodes with given parameters.
+        """
+        nodes = dict()
+        for name in node_names:
+            nodes[f'{name}_{type_str}'] = Field(
+                shape=params.get('shape', ()),
+                time_step=params.get('time_step', 5.0),
+                time_scale=params.get('time_scale', 100.0),
+                resting_level=params.get('resting_level', -3.0),
+                beta=params.get('beta', 20.0),
+                self_connection_w0=params.get('self_connection_w0', 2),
+                noise_strength=params.get('noise_strength', 0.0),
+                global_inhibition=params.get('global_inhibition', 0.0),
+                scale=params.get('scale', 1.0)
+            )
+
+            # Register buffer for prev state
+            nodes[f'{name}_{type_str}'].register_buffer(
+                "g_u_prev",
+                torch.zeros_like(nodes[f'{name}_{type_str}'].g_u)
+            )
+
+        return nodes
     
     def initialize_nodes_and_behaviors(self, behaviors=list):
         """
-        Initialize all nodes and behaviors for the find-move behavior chain.
+        Initialize all nodes and behaviors for the behavior chain.
         Also makes sure to include the base behavior for extended behaviors.
+        => "grab_transport" requires "grab" behavior to be initialized as well, this handles that.
         """
         # Collect all required behaviors (Elementary Behaviors for extensions)
         required_behaviors = set()
@@ -68,11 +98,11 @@ class BehaviorManager():
                 required_behaviors.add(base_name)
         
         # Create precondition nodes for all behaviors
-        preconditions = nodes_list(node_names=[f"{name}" for name in required_behaviors], type_str="precond")
+        preconditions = self.nodes_list(node_names=[f"{name}" for name in required_behaviors], type_str="precond")
 
         # Finally initialize all required behaviors and nodes
         for name in required_behaviors:
-            setattr(self, f"{name}_behavior", ElementaryBehavior_IntentionCoupling())
+            setattr(self, f"{name}_behavior", ElementaryBehaviorInterface())
             setattr(self, f"check_{name}", SanityCheckBehavior(behavior_name=name))
             setattr(self, f"{name}_precond", preconditions[f"{name}_precond"])
 
@@ -90,7 +120,7 @@ class BehaviorManager():
         return behavior_name
         
     def setup_connections(self):
-        """Setup all neural field connections using behavior chain data"""
+        """Setup all neural field connections using behavior chain"""
         for i, level in enumerate(self.behavior_chain):
             # CoS to precondition (weight 6)
             level['behavior'].CoS.connection_to(level['precondition'], 6.0)
@@ -109,14 +139,14 @@ class BehaviorManager():
         if behavior_name in behavior_config.EXTENDED_BEHAVIOR_CONFIG:
             extended_config = behavior_config.EXTENDED_BEHAVIOR_CONFIG[behavior_name]
             base_name = extended_config.get('extends')
-            if base_name and base_name in behavior_config.ElEMENTARY_BEHAVIOR_CONFIG:
+            if base_name and base_name in behavior_config.ELEMENTARY_BEHAVIOR_CONFIG:
                 # Merge base config with extended config
-                config = behavior_config.ElEMENTARY_BEHAVIOR_CONFIG[base_name].copy()
+                config = behavior_config.ELEMENTARY_BEHAVIOR_CONFIG[base_name].copy()
                 config.update({k: v for k, v in extended_config.items() if k != 'extends'})
                 return config
             
         # If no extension, return base config
-        return behavior_config.ElEMENTARY_BEHAVIOR_CONFIG.get(behavior_name, {})
+        return behavior_config.ELEMENTARY_BEHAVIOR_CONFIG.get(behavior_name, {})
 
         
     def setup_subscriptions(self, interactors):
@@ -134,99 +164,8 @@ class BehaviorManager():
 
             # Set up check behavior to publish back to the same interactor
             level['check'].set_interactor(interactor)
-    
-
-    def execute_step(self, interactors, external_input=6.0):
-        # Determine which behavior is currently active
-        active_behavior = self._get_active_behavior()
-
-        # Execute continuous world interaction for active behavior
-        if active_behavior:
-            level = next(l for l in self.behavior_chain if l['name'] == active_behavior)
-            interactor = getattr(interactors, level['interactor_type'])
-            continuous_method = getattr(interactor, level['continuous_method'])
-            
-            # Get service args and call continuous method
-            service_args = level['service_args_func'](interactors, self.behavior_args, level['name'])
-            if service_args[0] is not None:  # Only call if we have valid args
-                continuous_method(*service_args, level['name'])
-                
-        # Execute all behaviors (just DNF dynamics)
-        states = {}
-        for level in self.behavior_chain:
-            ext_input = external_input if level['name'] == 'find' else 0.0
-            states[level['name']] = level['behavior'].execute(ext_input)
-
-        # Process declarative state transitions upon success of behaviors
-        for level in self.behavior_chain:
-            behavior_name = level['name']
-            if (level.get('on_success') and 
-                states[level['name']].get('cos_active', False) and
-                behavior_name not in self.success_actions_executed):
-                self._process_success_actions(level['on_success'], interactors, self.behavior_args)
-                self.success_actions_executed.add(behavior_name)
 
 
-        # Process preconditions and add to state
-        states['preconditions'] = {}
-        for level in self.behavior_chain:
-            level['precondition'].cache_prev()
-            activation, activity = level['precondition']()
-            states['preconditions'][level['name']] = {
-                'activation': float(activation.detach()),
-                'activity': float(activity.detach()),
-                'active': float(activity) > 0.7
-            }
-            
-        # Process check behaviors - they decide autonomously about sanity checks
-        states['checks'] = {}
-        for level in self.behavior_chain:
-            # Execute check behavior autonomously
-            check_state = level['check'].execute(external_input=0.0)
-            
-            # Extract node states
-            if hasattr(level['check'], 'confidence'):
-                level['check'].confidence.cache_prev()
-                conf_activation, conf_activity = level['check'].confidence()
-                confidence_activation = float(conf_activation.detach())
-                confidence_activity = float(conf_activity.detach())
-            else:
-                confidence_activation = 0.0
-                confidence_activity = 0.0
-                
-            if hasattr(level['check'], 'intention'):
-                level['check'].intention.cache_prev()
-                int_activation, int_activity = level['check'].intention()
-                intention_activation = float(int_activation.detach())
-                intention_activity = float(int_activity.detach())
-            else:
-                intention_activation = 0.0
-                intention_activity = 0.0
-            
-            states['checks'][level['name']] = {
-                'confidence_activation': confidence_activation,
-                'confidence_activity': confidence_activity,
-                'intention_activation': intention_activation,
-                'intention_activity': intention_activity,
-                'sanity_check_triggered': check_state.get('sanity_check_triggered', False)
-            }
-            
-            # If check behavior autonomously decided to trigger sanity check
-            if check_state.get('sanity_check_triggered', False):
-                interactor = getattr(interactors, level['interactor_type'])
-                service_method = getattr(interactor, level['service_method'])
-                service_args = level['service_args_func'](interactors, self.behavior_args, level['name'])
-                
-                if service_args[0] is not None:
-                    # Single service call to verify current state
-                    result = service_method(*service_args)
-                    
-                    # Check behavior processes result and updates its own CoS input
-                    level['check'].process_sanity_result(result, level['check_failed_func'], level['name'])
-                    
-            
-        return states
-        
     def _get_active_behavior(self):
         """Determine which behavior should be actively interacting with world"""
         for level in self.behavior_chain:
@@ -235,7 +174,10 @@ class BehaviorManager():
         return None
     
     def _process_success_actions(self, actions, interactors, behavior_args):
-        """Process declarative success actions for a behavior."""
+        """
+        Process declarative success actions for a behavior.
+        => Some behaviors trigger additional one-time actions upon successful completion.
+        """
         for action in actions:
             action_type = action.get('action')
             
@@ -263,6 +205,92 @@ class BehaviorManager():
             level['check'].reset()
 
         self.success_actions_executed.clear()
+    
+
+    def execute_step(self, interactors, external_input=6.0):
+        # Determine which behavior is currently active
+        active_behavior = self._get_active_behavior()
+
+        # Execute continuous world interaction for active behavior
+        if active_behavior:
+            level = next(l for l in self.behavior_chain if l['name'] == active_behavior)
+            interactor = getattr(interactors, level['interactor_type'])
+            continuous_method = getattr(interactor, level['continuous_method'])
+            
+            # Get service args and call continuous method
+            service_args = level['service_args_func'](interactors, self.behavior_args, level['name'])
+            if service_args[0] is not None:  # Only call if we have valid args
+                continuous_method(*service_args, level['name'])
+                
+        # Execute all behaviors (just DNF dynamics)
+        states = {}
+        for level in self.behavior_chain:
+            ext_input = external_input if level['name'] == self.behavior_chain[0]['name'] else 0.0 # Only first behavior gets external input
+            states[level['name']] = level['behavior'].execute(ext_input)
+
+        # Process special actions upon success of behaviors
+        # => Only execute once per behavior success
+        for level in self.behavior_chain:
+            behavior_name = level['name']
+            if (level.get('on_success') and                             # There are "on success" actions defined
+                states[level['name']].get('cos_active', False) and      # Behavior succeeded
+                behavior_name not in self.success_actions_executed):    # Behavior "on success" action not yet executed
+
+                self._process_success_actions(level['on_success'], interactors, self.behavior_args)
+                self.success_actions_executed.add(behavior_name)
+
+
+        # Process preconditions and add to state
+        states['preconditions'] = {}
+        for level in self.behavior_chain:
+            level['precondition'].cache_prev()
+            activation, activity = level['precondition']()
+            states['preconditions'][level['name']] = {
+                'activation': float(activation.detach()),
+                'activity': float(activity.detach()),
+                'active': float(activity) > 0.7
+            }
+            
+        # Process check behaviors - sanity checks triggered by low confidence
+        states['checks'] = {}
+        for level in self.behavior_chain:
+            # Execute check behavior autonomously
+            check_state = level['check'].execute(external_input=0.0)
+
+            level['check'].confidence.cache_prev()
+            conf_activation, conf_activity = level['check'].confidence()
+            confidence_activation = float(conf_activation.detach())
+            confidence_activity = float(conf_activity.detach())
+
+            level['check'].intention.cache_prev()
+            int_activation, int_activity = level['check'].intention()
+            intention_activation = float(int_activation.detach())
+            intention_activity = float(int_activity.detach())
+            
+            states['checks'][level['name']] = {
+                'confidence_activation': confidence_activation,
+                'confidence_activity': confidence_activity,
+                'intention_activation': intention_activation,
+                'intention_activity': intention_activity,
+                'sanity_check_triggered': check_state.get('sanity_check_triggered', False)
+            }
+            
+            # If check behavior triggered sanity check
+            if check_state.get('sanity_check_triggered', False):
+                interactor = getattr(interactors, level['interactor_type'])
+                service_method = getattr(interactor, level['service_method'])
+                service_args = level['service_args_func'](interactors, self.behavior_args, level['name'])
+                
+                if service_args[0] is not None:
+                    # Single service call to verify current state of behavior goal
+                    result = service_method(*service_args)
+                    
+                    # Check behavior processes result and updates its own CoS input to the associated elementary behavior
+                    level['check'].process_sanity_result(result, level['check_failed_func'], level['name'])
+                    
+            
+        return states
+        
 
 # Example usage
 if __name__ == "__main__":

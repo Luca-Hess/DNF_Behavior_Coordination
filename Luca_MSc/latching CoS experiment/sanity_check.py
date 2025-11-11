@@ -2,13 +2,13 @@ from check_behavior import CheckBehavior
 
 class SanityCheckBehavior(CheckBehavior):
     """
-    Low-cost sanity check behavior to verify if a found target is still present.
+    Low-cost sanity check behavior to verify if a behavior target-state is still achieved.
     """
     def __init__(self, behavior_name=None, field_params=None):
         super().__init__(field_params)
         self.cos_input = 5.0
         self.behavior_name = behavior_name  # Name of the associated elementary behavior
-        self.interactor = None  # To be set externally if needed
+        self.interactor = None              # To be set externally if needed
 
     def set_interactor(self, interactor):
         """Set the interactor object for publishing CoS updates"""
@@ -21,6 +21,7 @@ class SanityCheckBehavior(CheckBehavior):
         sanity_check_triggered = float(state.get('confidence_activity', 0.0)) > 0.7
 
         # Once the signal for a sanity check is sent, reset the node and start next checking cycle
+        # => If the check fails, the sanity check will only re-engage once the intention is re-activated
         if sanity_check_triggered:
             self.reset()
 
@@ -41,7 +42,7 @@ class SanityCheckBehavior(CheckBehavior):
             cos_value = 0.0 
 
         else:
-            # Check passed - set active CoS input
+            # Check passed - set/confirm CoS input at 5.0
             cos_value = 5.0
 
         # Update CoS input of the associated elementary behavior

@@ -22,7 +22,7 @@
 # Supersets of elementary behaviors that extend their functionality by adding post-success actions.
 
 
-ElEMENTARY_BEHAVIOR_CONFIG = {
+ELEMENTARY_BEHAVIOR_CONFIG = {
     'find': {
             'interactor_type': 'perception',
             'continuous_method': 'find_object_continuous',

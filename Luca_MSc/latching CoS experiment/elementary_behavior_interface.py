@@ -6,9 +6,10 @@ sys.path.append(os.path.expanduser('~/nc_ws/DNF_torch'))
 # Add Luca_MSc subfolder for local scripts
 sys.path.append(os.path.join(os.path.expanduser('~/nc_ws/DNF_torch'), 'Luca_MSc/latching CoS experiment'))
 
-from elementary_behavior_latch import ElementaryBehavior_LatchingCoS
+from elementary_behavior import ElementaryBehavior
 
-class ElementaryBehavior_IntentionCoupling(ElementaryBehavior_LatchingCoS):
+class ElementaryBehaviorInterface (ElementaryBehavior):
+    """This interface extends the ElementaryBehavior to allow external setting of CoS input and processing DNF dynamics each step."""
     def __init__(self, field_params=None):
         super().__init__(field_params)
         self.cos_input = 0.0  # Subscribed value from external publisher

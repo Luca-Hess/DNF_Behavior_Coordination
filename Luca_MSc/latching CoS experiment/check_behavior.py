@@ -11,7 +11,6 @@ sys.path.append(os.path.join(os.path.expanduser('~/nc_ws/DNF_torch'), 'Luca_MSc/
 
 from DNF_torch.field import Field
 
-
 class CheckBehavior(nn.Module):
     """
     Check behavior structure using Dynamic Neural Fields.
@@ -40,7 +39,7 @@ class CheckBehavior(nn.Module):
         # Create the intention node that drives behavior execution
         self.intention = Field(**params)
 
-        # Create the confidence node that triggers sanity checks - currently tuned to trigger with 1Hz 
+        # Create the confidence node that triggers sanity checks - currently tuned to trigger with ~1Hz 
         self.confidence = Field(**{**params, 'beta': 2.0, 'resting_level': -4.0, 'time_scale': 300.0})
 
         # Initialize connection weights
@@ -92,49 +91,3 @@ class CheckBehavior(nn.Module):
         self.confidence.reset()
 
         self.confidence_low = False
-
-
-
-# simple demo with plot
-if __name__ == "__main__":
-    import matplotlib.pyplot as plt
-
-    # Create behavior
-    behavior = CheckBehavior()
-
-    # Simulation parameters
-    time_steps = 200
-    intention_input = 5.0  # Constant input to intention
-
-    # Store activities for plotting
-    intention_activities = []
-    intention_activations = []
-    confidence_activities = []
-    confidence_activations = []
-    confidence_state = []
-
-    # Run simulation
-    for t in range(time_steps):
-
-        state = behavior.forward(intention_input=intention_input, confidence_input=0.0)
-
-        intention_activities.append(state['intention_activity'])
-        intention_activations.append(state['intention_activation'])
-        confidence_activities.append(state['confidence_activity'])
-        confidence_activations.append(state['confidence_activation'])
-        confidence_state.append(state['confidence_low'])
-
-    # Plot results
-    plt.figure(figsize=(10, 5))
-    plt.plot(intention_activations, label='Intention Activation')
-    plt.plot(intention_activities, label='Intention Activity')
-    plt.plot(confidence_activations, label='Confidence Activation')
-    plt.plot(confidence_activities, label='Confidence Activity')
-    plt.plot([1.0 if cs else 0.0 for cs in confidence_state], label='Confidence Low State', linestyle='--')
-    plt.axhline(0.7, color='r', linestyle='--', label='Confidence Threshold')
-    plt.xlabel('Time Step')
-    plt.ylabel('Activity')
-    plt.title('Check Behavior Activities Over Time')
-    plt.legend()
-    plt.grid()
-    plt.show()
