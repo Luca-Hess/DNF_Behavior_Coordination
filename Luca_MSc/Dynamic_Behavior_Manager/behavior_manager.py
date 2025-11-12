@@ -215,12 +215,14 @@ class BehaviorManager():
         if active_behavior:
             level = next(l for l in self.behavior_chain if l['name'] == active_behavior)
             interactor = getattr(interactors, level['interactor_type'])
-            continuous_method = getattr(interactor, level['continuous_method'])
             
+            # Get method dynamically
+            method = getattr(interactor, level['method'])
+
             # Get service args and call continuous method
             service_args = level['service_args_func'](interactors, self.behavior_args, level['name'])
             if service_args[0] is not None:  # Only call if we have valid args
-                continuous_method(*service_args, level['name'])
+                method(*service_args, requesting_behavior=level['name'])
                 
         # Execute all behaviors (just DNF dynamics)
         states = {}
@@ -278,12 +280,12 @@ class BehaviorManager():
             # If check behavior triggered sanity check
             if check_state.get('sanity_check_triggered', False):
                 interactor = getattr(interactors, level['interactor_type'])
-                service_method = getattr(interactor, level['service_method'])
+                method = getattr(interactor, level['method'])
                 service_args = level['service_args_func'](interactors, self.behavior_args, level['name'])
                 
                 if service_args[0] is not None:
                     # Single service call to verify current state of behavior goal
-                    result = service_method(*service_args)
+                    result = method(*service_args, requesting_behavior=None)
                     
                     # Check behavior processes result and updates its own CoS input to the associated elementary behavior
                     level['check'].process_sanity_result(result, level['check_failed_func'], level['name'])

@@ -5,31 +5,6 @@ import matplotlib.pyplot as plt
 from DNF_torch.field import Field
 
 
-def nodes_list(node_names = list, type_str="precond", params=dict()):
-    """
-    Create precondition nodes with given parameters.
-    """
-    nodes = dict()
-    for name in node_names:
-        nodes[f'{name}_{type_str}'] = Field(
-            shape=params.get('shape', ()),
-            time_step=params.get('time_step', 5.0),
-            time_scale=params.get('time_scale', 100.0),
-            resting_level=params.get('resting_level', -3.0),
-            beta=params.get('beta', 20.0),
-            self_connection_w0=params.get('self_connection_w0', 2),
-            noise_strength=params.get('noise_strength', 0.0),
-            global_inhibition=params.get('global_inhibition', 0.0),
-            scale=params.get('scale', 1.0)
-        )
-
-        # Register buffer for prev state
-        nodes[f'{name}_{type_str}'].register_buffer(
-            "g_u_prev",
-            torch.zeros_like(nodes[f'{name}_{type_str}'].g_u)
-        )
-
-    return nodes
 
 
 ### Find Grab Behavior Simulation ###

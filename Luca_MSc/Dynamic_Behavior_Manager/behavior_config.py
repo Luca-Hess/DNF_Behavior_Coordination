@@ -25,40 +25,35 @@
 ELEMENTARY_BEHAVIOR_CONFIG = {
     'find': {
             'interactor_type': 'perception',
-            'continuous_method': 'find_object_continuous',
-            'service_method': 'find_object_service',
+            'method': 'find_object',
             'service_args_func': lambda interactors, args, behavior_name: (
                 interactors.state.get_behavior_target_name(behavior_name),
             )
     },
    'move':{
             'interactor_type': 'movement',
-            'continuous_method': 'move_to_continuous',
-            'service_method': 'move_to_service',
+            'method': 'move_to',
             'service_args_func': lambda interactors, args, behavior_name: (
                 interactors.state.get_behavior_target_location(behavior_name),
             )
     },
     'check_reach':{
             'interactor_type': 'gripper',
-            'continuous_method': 'reach_check_continuous',
-            'service_method': 'reach_check_service',
+            'method': 'reach_check',
             'service_args_func': lambda interactors, args, behavior_name: (
                 interactors.state.get_behavior_target_location(behavior_name),
             )
     },
     'reach_for':{
             'interactor_type': 'gripper',
-            'continuous_method': 'reach_for_continuous',
-            'service_method': 'reach_for_service',
+            'method': 'reach_for',
             'service_args_func': lambda interactors, args, behavior_name: (
                 interactors.state.get_behavior_target_location(behavior_name),
             )
     },
     'grab':{
             'interactor_type': 'gripper',
-            'continuous_method': 'grab_continuous',
-            'service_method': 'grab_service',
+            'method': 'grab',
             'service_args_func': lambda interactors, args, behavior_name: 
             interactors.state.get_behavior_target_info(behavior_name)
     }

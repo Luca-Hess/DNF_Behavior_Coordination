@@ -4,19 +4,17 @@ import time
 
 random.seed(2) #seed 2 has no collapses for find, 3 has two
 
-class PerceptionInteractor:
-    def __init__(self, tracking_loss_prob=0.3, max_tracking_loss_duration=10, get_robot_position=None):
-        self.objects = {}
-        self.search_attempts = 0
-        self._get_robot_position = get_robot_position
 
-        self.tracking_loss_probability = tracking_loss_prob
-        self.max_tracking_loss_duration = max_tracking_loss_duration
-        self.in_tracking_loss = False
-        
-        # Pub/Sub state
+class BaseInteractor:
+    """Base class for all interactors with common pub/sub and state management"""
+    
+    def __init__(self, **kwargs):
+        # Common pub/sub infrastructure
         self.subscribers = {}  # {behavior_name: callback}
-        self.target_states = {}  # Shared state across all behaviors
+        self.shared_states = {}  # Shared state across behaviors
+        
+        # Store initialization parameters
+        self.params = kwargs
         
     def subscribe_cos_updates(self, behavior_name, callback):
         """Register a behavior to receive CoS updates"""
@@ -26,42 +24,56 @@ class PerceptionInteractor:
         """Publish CoS state to subscribed behavior"""
         if behavior_name in self.subscribers:
             self.subscribers[behavior_name](cos_value)
-            
-    def find_object_service(self, name):
-        """Service call for sanity checks - one-time query"""
-        target_found, location, angle = self._find_object_internal(name)
-        self._update_and_publish_state(name, target_found, location, angle)
-        
-        return target_found, location, angle
-        
-    def find_object_continuous(self, name, requesting_behavior):
-        """Continuous publisher for active behaviors"""
-        target_found, location, angle = self._find_object_internal(name)
-        self._update_and_publish_state(name, target_found, location, angle, requesting_behavior)
-        
-        return target_found, location, angle
     
-    def _update_and_publish_state(self, name, target_found, location, angle, requesting_behavior=None):
-        """Common logic for updating shared state and publishing CoS"""
-        
-        # Update shared target state for other interactors
-        self.target_states[name] = {
-            'found': target_found,
-            'location': location,
-            'angle': angle,
-            'last_updated': time.time()
-        }
-        
-        # Publish CoS update - same logic for both continuous and service
-        cos_value = 5.0 if target_found else 0.0
+    def _update_and_publish_state(self, state_data, cos_condition, requesting_behavior=None):
+        """Generic state update and CoS publishing"""
+        cos_value = 5.0 if cos_condition else 0.0
         
         if requesting_behavior:
-            # Continuous call - publish to specific requesting behavior
+            # Add timestamp and store in shared state
+            state_data['last_updated'] = time.time()
+            self.shared_states[requesting_behavior] = state_data
+            
+            # Publish CoS for continuous calls
             self.publish_cos_state(requesting_behavior, cos_value)
-        else:
-            # Service call
-            # For sanity checks, the check behavior will handle CoS publishing separately
-            pass
+        # For service calls, just return the data without publishing
+        
+        return cos_condition, state_data
+    
+    def reset(self):
+        """Reset interactor state - to be overridden"""
+        self.shared_states.clear()
+
+class PerceptionInteractor(BaseInteractor):
+    def __init__(self, get_robot_position=None, **kwargs):
+        super().__init__(**kwargs)
+
+        self.objects = {}
+        self.target_states = {}
+        self._get_robot_position = get_robot_position
+
+        # Simulation parameters for object finding behavior
+        self.search_attempts = 0
+        self.tracking_loss_probability = 0.3  # Probability to lose tracking on each
+        self.max_tracking_loss_duration = 5   # Max steps to lose tracking
+        self.in_tracking_loss = False
+        self.tracking_loss_remaining = 0
+
+    def find_object(self, name, requesting_behavior=None):
+        """Unified find object method - behaves differently based on requesting_behavior"""
+        target_found, location, angle = self._find_object_internal(name)
+        
+        state_data = {
+            'target_name': name,
+            'target_found': target_found,
+            'target_location': location,
+            'target_angle': angle
+        }
+        
+        # Use base class helper for state management and publishing
+        self._update_and_publish_state(state_data, target_found, requesting_behavior)
+        
+        return target_found, location, angle
         
     def _find_object_internal(self, name):
         """Internal object finding logic"""
@@ -78,12 +90,12 @@ class PerceptionInteractor:
             if self.tracking_loss_remaining <= 0:
                 self.in_tracking_loss = False
             return False, None, None
-        
+
         # Normal detection logic
         if name in self.objects and self.search_attempts >= 3:
-            return True, self.objects[name]['location'], self.objects[name]['angle']
+            return True, self.objects[name]['location'], self.objects[name]
         return False, None, None
-
+    
     def register_object(self, name, location, angle=torch.tensor([0.0, 0.0, 0.0])):
         """Register or update an object's location and angle."""
         self.objects[name] = {
@@ -92,76 +104,50 @@ class PerceptionInteractor:
             'lost_counter': 0
         }
 
+    def reset(self):
+        """Reset perception state."""
+        super().reset()
+        self.target_states = {}
+    
 
-class MovementInteractor:
+class MovementInteractor(BaseInteractor):
     """Handles robot position, movement, and spatial calculations."""
 
     def __init__(
             self,
             max_speed = 0.1,        # max speed per step
             gain = 1.0,
-            stop_threshold = 0.1    # distance to consider "arrived"
+            stop_threshold = 0.1,   # distance to consider "arrived"
+            **kwargs
         ):
+        super().__init__(**kwargs)
+
         self.robot_position = torch.tensor([0.0, 0.0, 0.0])
         self.max_speed = max_speed
         self.gain = gain
         self.stop_threshold = stop_threshold
-
-        # Pub/Sub state
-        self.subscribers = {}  # {behavior_name: callback}
-        self.movement_states = {}  # Shared state across behaviors
-        
-    def subscribe_cos_updates(self, behavior_name, callback):
-        """Register a behavior to receive CoS updates"""
-        self.subscribers[behavior_name] = callback
-        
-    def publish_cos_state(self, behavior_name, cos_value):
-        """Publish CoS state to subscribed behavior"""
-        if behavior_name in self.subscribers:
-            self.subscribers[behavior_name](cos_value)
             
-    def move_to_service(self, target_location):
-        """Service call for sanity checks - one-time query"""
-        arrived, position = self._check_arrival_internal(target_location)
-        self._update_and_publish_state(target_location, arrived, position)
-        return arrived, position
-        
-    def move_to_continuous(self, target_location, requesting_behavior):
-        """Continuous publisher for active behaviors"""
-        # Execute movement step
-        self.move_towards(target_location)
-
-        arrived, position = self._check_arrival_internal(target_location)
-        self._update_and_publish_state(target_location, arrived, position, requesting_behavior)
-        return arrived, position
-    
-    def _update_and_publish_state(self, target_location, arrived, position, requesting_behavior=None):
-        """Common logic for updating shared state and publishing CoS"""
-
-        # Determine CoS value based on arrival
-        cos_value = 5.0 if arrived else 0.0
-
-        # Update shared state
+    def move_to(self, target_location, requesting_behavior=None):
+        # For continuous calls, actually move the robot
         if requesting_behavior:
-            self.movement_states[requesting_behavior] = {
-                'target_location': target_location,
-                'arrived': arrived,
-                'distance': self.calculate_distance(target_location),
-                'last_updated': time.time()
-            }
-        
-            # Continuous call - publish to specific requesting behavior
-            self.publish_cos_state(requesting_behavior, cos_value)
+            self.move_towards(target_location)
 
-        else:
-            # Service call
-            # For sanity checks, the check behavior will handle CoS publishing separately
-            pass
-                
-    def _check_arrival_internal(self, target_location):
-        """Internal arrival check logic"""
+        # Check arrival status
         arrived = self.is_at(target_location)
-        return arrived, self.get_position()
+        position = self.get_position()
+        
+        state_data = {
+            'target_location': target_location,
+            'arrived': arrived,
+            'distance': self.calculate_distance(target_location),
+            'position': position
+        }
+        
+        # Use base class helper for state management and publishing
+        self._update_and_publish_state(state_data, arrived, requesting_behavior)
+        
+        return arrived, position
+                
 
     def get_position(self):
         """Get the current robot position."""
@@ -183,27 +169,25 @@ class MovementInteractor:
         threshold = self.stop_threshold if thresh is None else float(thresh)
         return self.calculate_distance(target_location) <= threshold
 
-    def _direction_and_distance(self, target_location):
-        """Internal: unit direction (2D) and distance."""
-        delta = target_location[:2] - self.robot_position[:2]
-        dist = torch.norm(delta)
-        if dist.item() == 0.0:
-            return torch.tensor([0.0, 0.0]), 0.0
-        return (delta / dist), float(dist)
 
     def move_towards(self, target_location):
         """
         Plan and execute a single bounded step toward target.
         Returns the applied motor command tensor [dx, dy, dz] or None if arrived/invalid.
         """
-        if target_location is None:
-            return None
-        if self.is_at(target_location):
+        if target_location is None or self.is_at(target_location):
             return None
 
-        direction, distance = self._direction_and_distance(target_location)
+        delta = target_location[:2] - self.robot_position[:2]
+        dist = torch.norm(delta)
+
+        if dist.item() == 0.0:
+            return None
+
+        direction = delta / dist 
+        
         # Proportional step with clamp to max_speed and no overshoot
-        step_mag = min(self.max_speed, self.gain * distance, distance)
+        step_mag = min(self.max_speed, self.gain * float(dist), float(dist))
         step_vec_2d = direction * step_mag
 
         # Update pose (planar)
@@ -212,23 +196,12 @@ class MovementInteractor:
         motor_cmd = torch.tensor([step_vec_2d[0].item(), step_vec_2d[1].item(), 0.0])
         return motor_cmd
 
-    def move_robot(self, motor_commands):
-        """
-        Backward‑compat: directly apply provided motor delta (planar).
-        Returns updated position.
-        """
-        if motor_commands is not None:
-            if len(motor_commands) >= 2:
-                if not torch.is_tensor(motor_commands):
-                    motor_commands = torch.tensor(motor_commands, dtype=torch.float32)
-                self.robot_position[:2] += motor_commands[:2]
-        return self.robot_position.clone()
 
     def reset(self):
         """Reset movement state."""
         self.robot_position = torch.tensor([0.0, 0.0, 0.0])
 
-class GripperInteractor:
+class GripperInteractor(BaseInteractor):
     """Handles gripper position and movement."""
 
     def __init__(
@@ -240,8 +213,11 @@ class GripperInteractor:
             max_reach = 2.5,            # max reach from robot base
             get_robot_position = None,  # anchor arm to robot base
             is_open = False,            # gripper state
-            has_object_state = False          # whether gripper is holding an object
+            has_object_state = False,   # whether gripper is holding an object
+            **kwargs
         ):
+        super().__init__(**kwargs)
+
         self.max_speed = max_speed
         self.gain = gain
         self.stop_threshold = stop_threshold
@@ -256,8 +232,6 @@ class GripperInteractor:
         self.wait_counter = 0  # for simulating object grasp delay
 
         # Pub/Sub state
-        self.subscribers = {}  # {behavior_name: callback}
-        self.gripper_states = {}  # Shared state across behaviors
         self.grabbed_objects = {}  # Track grabbed objects per behavior
 
         # Robot position reference
@@ -270,14 +244,6 @@ class GripperInteractor:
         self.gripper_offset = torch.tensor([0.0, 0.0, 0.5]) # gripper is slightly above base
         self.gripper_position = robot_position + self.gripper_offset
 
-    def subscribe_cos_updates(self, behavior_name, callback):
-        """Register a behavior to receive CoS updates"""
-        self.subscribers[behavior_name] = callback
-        
-    def publish_cos_state(self, behavior_name, cos_value):
-        """Publish CoS state to subscribed behavior"""
-        if behavior_name in self.subscribers:
-            self.subscribers[behavior_name](cos_value)
 
     def gripper_can_reach(self, target_location):
         """Check if gripper can reach the target location."""
@@ -290,146 +256,102 @@ class GripperInteractor:
 
         return distance <= self.max_reach
             
-    def reach_check_continuous(self, target_location, requesting_behavior):
+    def reach_check(self, target_location, requesting_behavior=None):
         """Continuous publisher for active behaviors"""
         reachable = self.gripper_can_reach(target_location)
-        self._update_and_publish_state(target_location, reachable, requesting_behavior)
-        return reachable, self.get_position()
-    
-    def reach_check_service(self, target_location):
-        """Service call for sanity checks - one-time query"""
-        reachable = self.gripper_can_reach(target_location)
-        self._update_and_publish_state(target_location, reachable)
-        return reachable, self.get_position()
-    
-    def _update_and_publish_state(self, target_location, reachable, requesting_behavior=None):
-        """Common logic for updating shared state and publishing CoS"""
-
-        # Determine CoS value based on reachability
-        cos_value = 5.0 if reachable else 0.0
+        position = self.get_position()
 
         distance = float(torch.norm(target_location - self.gripper_position)) if target_location is not None else float('inf')
 
+        state_data = {
+            'target_location': target_location,
+            'reachable': reachable,
+            'distance': distance
+        }
 
-        # Update shared state
-        if requesting_behavior:
-            self.gripper_states[requesting_behavior] = {
-                'target_location': target_location,
-                'reachable': reachable,
-                'distance': distance,
-                'last_updated': time.time()
-            }
-            # Continuous call - publish to specific requesting behavior
-            self.publish_cos_state(requesting_behavior, cos_value)
+        self._update_and_publish_state(state_data, reachable, requesting_behavior)
 
-        else:
-            # Service call
-            # For sanity checks, the check behavior will handle CoS publishing separately
-            pass
+        return reachable, position
 
-    def reach_for_continuous(self, target_location, requesting_behavior):   
+
+    def reach_for(self, target_location, requesting_behavior=None):   
         """Continuous publisher for active behaviors"""
-        motor_cmd = self.gripper_move_towards(target_location)
+        motor_cmd = None
+
+        # For continous calls, actually move the gripper
+        if requesting_behavior:
+            motor_cmd = self.gripper_move_towards(target_location)
+
         at_target = self.gripper_is_at(target_location)
-        self._update_and_publish_state(target_location, at_target, requesting_behavior)
-        return at_target, self.get_position(), motor_cmd
+        position = self.get_position()
+
+        state_data = {
+            'target_location': target_location,
+            'at_target': at_target,
+            'motor_command': motor_cmd
+        }
+
+        self._update_and_publish_state(state_data, at_target, requesting_behavior)
+        
+        return at_target, position, motor_cmd
     
-    def reach_for_service(self, target_location):
-        """Service call for sanity checks - one-time query"""
-        at_target = self.gripper_is_at(target_location)
-        self._update_and_publish_state(target_location, at_target)
-        return at_target, self.get_position(), None
+
     
     ## Gripper interactors for grabbing - consists of orient, open, fine_reach, close, has_object check (as final CoS driver)
-    def grab_continuous(self, target_name, target_location, target_orientation, requesting_behavior):
+    def grab(self, target_name, target_location, target_orientation, requesting_behavior=None):
         """Continuous publisher for active behaviors - full grab sequence"""
         motor_cmd_orient = None
         motor_cmd_reach = None
         grabbed = False
 
-        # First orient gripper to target if needed
-        if not self.is_oriented(target_orientation):
-            motor_cmd_orient = self.gripper_rotate_towards(target_orientation)
+        # For continuous calls, execute grab sequence stepwise
+        if requesting_behavior:
+            # First orient gripper to target if needed
+            if not self.is_oriented(target_orientation):
+                motor_cmd_orient = self.gripper_rotate_towards(target_orientation)
 
-            # Update shared state - not grabbed yet, still orienting
-            self._update_and_publish_grab_state(target_location, target_orientation, grabbed, requesting_behavior)
-            return grabbed, self.get_position(), motor_cmd_orient, motor_cmd_reach
+            # Open gripper if needed, then reach
+            elif not self.gripper_is_open and self.initial_approach:
+                self.open_gripper()
+                self.initial_approach = False
 
-        # Open gripper if needed, then reach
-        if not self.gripper_is_open and self.initial_approach:
-            self.initial_approach = False
-            # Update shared state - not grabbed yet, but oriented
-            self._update_and_publish_grab_state(target_location, target_orientation, grabbed, requesting_behavior)
-            return grabbed, self.get_position(), motor_cmd_orient, motor_cmd_reach
+            # Move gripper to target location - fine reaching!
+            elif not self.gripper_is_at(target_location):
+                motor_cmd_reach = self.gripper_move_towards(target_location)
 
-        # Move gripper to target location - fine reaching!
-        if not self.gripper_is_at(target_location):
-            motor_cmd_reach = self.gripper_move_towards(target_location)
-            # Update shared state - not grabbed yet, still reaching
-            self._update_and_publish_grab_state(target_location, target_orientation, grabbed, requesting_behavior)
-            return grabbed, self.get_position(), motor_cmd_orient, motor_cmd_reach
-        
-
-        # Once at target, close gripper
-        if self.gripper_is_open:
-            self.close_gripper()
-            # Update shared state - not grabbed yet, just closed
-            self._update_and_publish_grab_state(target_location, target_orientation, grabbed, requesting_behavior)
-            return grabbed, self.get_position(), motor_cmd_orient, motor_cmd_reach
+            # Once at target, close gripper
+            elif self.gripper_is_open:
+                self.close_gripper()
         
         # Finally, check if object is held
         grabbed = self.has_object(gripper_position=self.get_position(), object_position=target_location)
 
         if grabbed:
-            self.grabbed_objects[target_name] = self.get_position()
+            grab_offset = target_location - self.gripper_position
+            self.grabbed_objects[target_name] = grab_offset
+
+        else:
+            # For service calls, check current state
+            at_target = self.gripper_is_at(target_location)
+            oriented = self.is_oriented(target_orientation)
+
+            if at_target and oriented and not self.gripper_is_open:
+                grabbed = self.has_object(gripper_position=self.get_position(), object_position=target_location)
+
+        state_data = {
+            'target_name': target_name,
+            'target_location': target_location,
+            'target_orientation': target_orientation,
+            'grabbed': grabbed,
+            'at_target': self.gripper_is_at(target_location),
+            'oriented': self.is_oriented(target_orientation),
+            'gripper_open': self.is_open
+        }
 
         # Update shared state with final grab result
-        self._update_and_publish_grab_state(target_location, target_orientation, grabbed, requesting_behavior)
+        self._update_and_publish_state(state_data, grabbed, requesting_behavior)
     
         return grabbed, self.get_position(), motor_cmd_orient, motor_cmd_reach
-
-    def grab_service(self, target_name, target_location, target_orientation):
-        """Service call for sanity checks - one-time query"""
-        # For service calls, just check current state without executing actions
-        at_target = self.gripper_is_at(target_location)
-        oriented = self.is_oriented(target_orientation)
-        grabbed = False
-
-        if at_target and oriented and not self.gripper_is_open:
-            grabbed = self.has_object(gripper_position=self.get_position(), object_position=target_location)
-
-        if target_location == None or not at_target or not oriented or self.gripper_is_open:
-            grabbed = False
-
-        self._update_and_publish_grab_state(target_location, target_orientation, grabbed)
-        return grabbed, self.get_position(), None, None
-
-    def _update_and_publish_grab_state(self, target_location, target_orientation, grabbed, requesting_behavior=None):
-        """Common logic for updating shared state and publishing CoS for grab operations"""
-        
-        # Determine CoS value based on successful grab
-        cos_value = 5.0 if grabbed else 0.0
-        
-        distance = float(torch.norm(target_location - self.gripper_position)) if target_location is not None else float('inf')
-
-        # Update shared state
-        if requesting_behavior:
-            self.gripper_states[requesting_behavior] = {
-                'target_location': target_location,
-                'target_orientation': target_orientation,
-                'grabbed': grabbed,
-                'at_target': self.gripper_is_at(target_location),
-                'oriented': self.is_oriented(target_orientation),
-                'gripper_open': self.is_open,
-                'has_object': self._has_object,
-                'distance': distance,
-                'last_updated': time.time()
-            }
-            # Continuous call - publish to specific requesting behavior
-            self.publish_cos_state(requesting_behavior, cos_value)
-        else:
-            # Service call - check behavior will handle CoS publishing separately
-            pass
 
 
     def normalize_orientation(self):
@@ -557,14 +479,6 @@ class GripperInteractor:
 
         return torch.norm(target_location - self.gripper_position) <= threshold
 
-    def _direction_and_distance(self, target_location):
-        """Internal: unit direction (3D) and distance."""
-        delta = target_location - self.gripper_position
-        dist = torch.norm(delta)
-        if dist.item() == 0.0:
-            return torch.tensor([0.0, 0.0, 0.0]), 0.0
-        return (delta / dist), float(dist)
-
     def gripper_move_towards(self, target_location):
         """
         Plan and execute a single bounded step toward target.
@@ -573,9 +487,15 @@ class GripperInteractor:
         if target_location is None:
             return None
 
-        direction, distance = self._direction_and_distance(target_location)
+        delta = target_location - self.gripper_position
+        dist = torch.norm(delta)
+
+        if dist.item() == 0.0:
+            return None
+
         # Proportional step with clamp to max_speed and no overshoot
-        step_mag = min(self.max_speed, self.gain * distance, distance)
+        direction = delta / dist
+        step_mag = min(self.max_speed, self.gain * float(dist), float(dist))
         step_vec = direction * step_mag
 
         # Calculate new potential position
@@ -601,12 +521,16 @@ class GripperInteractor:
         robot_position = self._get_robot_position().clone()
         self.gripper_offset = torch.tensor([0.0, 0.0, 0.5]) # gripper is slightly above base
         self.gripper_position = robot_position + self.gripper_offset
+        self.grabbed_objects.clear()
+        self.initial_approach = True
+        self._has_object = False
 
 
-class StateInteractor:
+class StateInteractor(BaseInteractor):
     """Interactor for managing world state transitions and updates"""
     
     def __init__(self, perception_interactor, movement_interactor, gripper_interactor):
+        super().__init__()
         self.perception = perception_interactor
         self.movement = movement_interactor
         self.gripper = gripper_interactor
@@ -635,12 +559,21 @@ class StateInteractor:
         
         return True, self.behavior_targets.copy()
     
-    def update_behavior_target(self, behavior_name, new_target_name):
-        """Update target for a specific behavior"""
+    def update_behavior_target(self, behavior_name, new_target_name, requesting_behavior=None):
+        """Unified method to update target for a specific behavior"""
         old_target = self.behavior_targets.get(behavior_name)
         self.behavior_targets[behavior_name] = new_target_name
+                
+        state_data = {
+            'behavior_name': behavior_name,
+            'old_target': old_target,
+            'new_target': new_target_name
+        }
         
-        return True, new_target_name
+        success = True
+        self._update_and_publish_state(state_data, success, requesting_behavior)
+        
+        return success, new_target_name
     
     def update_multiple_behavior_targets(self, target_updates):
         """Update targets for multiple behaviors at once"""
