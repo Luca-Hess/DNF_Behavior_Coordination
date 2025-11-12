@@ -210,7 +210,7 @@ class GripperInteractor(BaseInteractor):
             gain = 1.0,
             stop_threshold = 0.01,      # distance to consider "arrived"
             orient_threshold = 0.01,    # radians to consider "oriented"
-            max_reach = 2.5,            # max reach from robot base
+            max_reach = 3,            # max reach from robot base
             get_robot_position = None,  # anchor arm to robot base
             is_open = False,            # gripper state
             has_object_state = False,   # whether gripper is holding an object
@@ -538,6 +538,8 @@ class StateInteractor(BaseInteractor):
         # Dynamic target state - populated based on behavior chain
         self.behavior_targets = {}  # {behavior_name: current_target_name}
         self.target_args = {}       # Store original args for reference
+        self.instance_targets = {} # {behavior_name: target_name} for instance-specific targets
+        self.global_state = {}      # Global state info if needed
     
     def initialize_from_behavior_chain(self, behavior_chain, args):
         """Initialize targets dynamically based on the behavior chain and args"""
@@ -619,6 +621,15 @@ class StateInteractor(BaseInteractor):
 
         return None, None, None
 
+    def get_instance_target(self, instance_id):
+        """Get the instance-specific target for a behavior"""
+        target_name = self.instance_targets.get(instance_id)
+        return target_name
+    
+    def set_instance_target(self, instance_id, target_info):
+        """Set the instance-specific target for a behavior"""
+        self.instance_targets[instance_id] = target_info
+        return True, target_info
 
 
 class RobotInteractors:

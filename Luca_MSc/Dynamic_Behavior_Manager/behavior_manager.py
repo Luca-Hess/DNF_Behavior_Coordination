@@ -25,9 +25,9 @@ from helper_functions import initalize_log, update_log, plot_logs, animate_fixed
 import behavior_config
 
 class BehaviorManager():
-    def __init__(self, behaviors=list, args=dict()):
+    def __init__(self, behaviors=list, args=dict(), debug=False):
         self.behavior_args = args
-
+        self.debug = debug
 
         self.initialize_nodes_and_behaviors(behaviors)
 
@@ -52,6 +52,7 @@ class BehaviorManager():
         for level in self.behavior_chain:
             level.update(self._resolve_behavior_config(level['name']))
         
+
         # Setup DNF node connections according to behavior chain
         self.setup_connections()
 
@@ -136,17 +137,24 @@ class BehaviorManager():
     
     def _resolve_behavior_config(self, behavior_name):
         """Resolve behavior configuration, including extended behaviors."""
-        if behavior_name in behavior_config.EXTENDED_BEHAVIOR_CONFIG:
-            extended_config = behavior_config.EXTENDED_BEHAVIOR_CONFIG[behavior_name]
-            base_name = extended_config.get('extends')
-            if base_name and base_name in behavior_config.ELEMENTARY_BEHAVIOR_CONFIG:
-                # Merge base config with extended config
-                config = behavior_config.ELEMENTARY_BEHAVIOR_CONFIG[base_name].copy()
-                config.update({k: v for k, v in extended_config.items() if k != 'extends'})
-                return config
-            
-        # If no extension, return base config
-        return behavior_config.ELEMENTARY_BEHAVIOR_CONFIG.get(behavior_name, {})
+        try:
+            if behavior_name in behavior_config.EXTENDED_BEHAVIOR_CONFIG:
+                extended_config = behavior_config.EXTENDED_BEHAVIOR_CONFIG[behavior_name]
+                base_name = extended_config.get('extends')
+                if base_name and base_name in behavior_config.ELEMENTARY_BEHAVIOR_CONFIG:
+                    # Merge base config with extended config
+                    config = behavior_config.ELEMENTARY_BEHAVIOR_CONFIG[base_name].copy()
+                    config.update({k: v for k, v in extended_config.items() if k != 'extends'})
+                    return config
+
+            if behavior_name in behavior_config.ELEMENTARY_BEHAVIOR_CONFIG:
+                return behavior_config.ELEMENTARY_BEHAVIOR_CONFIG.get(behavior_name, {})
+
+            raise ValueError(f"Unknown behavior: {behavior_name}")
+
+        except Exception as e:
+            print(f"[ERROR] Failed to resolve behavior config for {behavior_name}: {e}")
+            return {}
 
         
     def setup_subscriptions(self, interactors):
@@ -196,6 +204,12 @@ class BehaviorManager():
                     print(f"[ERROR] Success action {action_type} failed: {e}")
             else:
                 print(f"[ERROR] Unknown action type: {action_type}")
+
+
+    def _debug_print(self, message):
+        """Print debug message if debugging is enabled"""
+        if self.debug:
+            print(f"[DEBUG] {message}")
     
     def reset(self):
         """Reset all behaviors and preconditions using behavior chain data"""
@@ -204,12 +218,15 @@ class BehaviorManager():
             level['precondition'].reset()
             level['check'].reset()
 
+        self.debug = False
+
         self.success_actions_executed.clear()
     
 
     def execute_step(self, interactors, external_input=6.0):
         # Determine which behavior is currently active
         active_behavior = self._get_active_behavior()
+        self._debug_print(f"Active behavior: {active_behavior}")
 
         # Execute continuous world interaction for active behavior
         if active_behavior:
@@ -223,12 +240,15 @@ class BehaviorManager():
             service_args = level['service_args_func'](interactors, self.behavior_args, level['name'])
             if service_args[0] is not None:  # Only call if we have valid args
                 method(*service_args, requesting_behavior=level['name'])
+                self._debug_print(f"Executed continuous interaction for {active_behavior} with args {service_args}")
                 
         # Execute all behaviors (just DNF dynamics)
         states = {}
         for level in self.behavior_chain:
             ext_input = external_input if level['name'] == self.behavior_chain[0]['name'] else 0.0 # Only first behavior gets external input
             states[level['name']] = level['behavior'].execute(ext_input)
+
+        self._debug_print(f"Behavior states: {states}")
 
         # Process special actions upon success of behaviors
         # => Only execute once per behavior success
@@ -240,6 +260,7 @@ class BehaviorManager():
 
                 self._process_success_actions(level['on_success'], interactors, self.behavior_args)
                 self.success_actions_executed.add(behavior_name)
+                self._debug_print(f"Processed success actions for {behavior_name}")
 
 
         # Process preconditions and add to state
@@ -252,6 +273,7 @@ class BehaviorManager():
                 'activity': float(activity.detach()),
                 'active': float(activity) > 0.7
             }
+        self._debug_print(f"Precondition states: {states['preconditions']}")
             
         # Process check behaviors - sanity checks triggered by low confidence
         states['checks'] = {}
@@ -276,6 +298,7 @@ class BehaviorManager():
                 'intention_activity': intention_activity,
                 'sanity_check_triggered': check_state.get('sanity_check_triggered', False)
             }
+            self._debug_print(f"Sanity check state for {level['name']}: {states['checks'][level['name']]}")
             
             # If check behavior triggered sanity check
             if check_state.get('sanity_check_triggered', False):
@@ -290,6 +313,7 @@ class BehaviorManager():
                     # Check behavior processes result and updates its own CoS input to the associated elementary behavior
                     level['check'].process_sanity_result(result, level['check_failed_func'], level['name'])
                     
+                    self._debug_print(f"Processed sanity check for {level['name']} with result {result}")
             
         return states
         
@@ -302,8 +326,13 @@ if __name__ == "__main__":
         args={ 
             'target_object': 'cup',
             'drop_off_target': 'transport_target'
-        })
-    
+        }, debug=False)
+    find_move_2 = BehaviorManager(
+        behaviors=['find', 'move', 'check_reach', 'reach_for', 'grab_transport'],
+        args={ 
+            'target_object': 'bottle',
+            'drop_off_target': 'transport_target'
+        }, debug=False)
     
     # Log all activations and activities for plotting
     log = initalize_log(find_move.behavior_chain)
@@ -332,6 +361,10 @@ if __name__ == "__main__":
     interactors.perception.register_object(name="transport_target",
                                            location=torch.tensor([5.0, 0.0, 1.0]),
                                            angle=torch.tensor([0.0, 0.0, 0.0]))
+    
+    interactors.perception.register_object(name="bottle",
+                                           location=torch.tensor([8.0, 12.0, 1.5]),
+                                           angle=torch.tensor([0.0, -1.0, 0.0]))
 
     # Create the find-grab behavior
     find_move.setup_subscriptions(interactors)
@@ -344,6 +377,8 @@ if __name__ == "__main__":
     for step in range(1200):
         # Execute find behavior
         state = find_move.execute_step(interactors, external_input)
+
+        # state_2 = find_move_2.execute_step(interactors, )
 
         # Update the visualizer
         if visualize:
