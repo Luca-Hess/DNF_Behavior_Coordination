@@ -10,7 +10,8 @@ class BaseInteractor:
     
     def __init__(self, **kwargs):
         # Common pub/sub infrastructure
-        self.subscribers = {}  # {behavior_name: callback}
+        self.cos_subscribers = {}  # {behavior_name: callback}
+        self.cof_subscribers = {}  # {behavior_name: callback}
         self.shared_states = {}  # Shared state across behaviors
         
         # Store initialization parameters
@@ -18,27 +19,40 @@ class BaseInteractor:
         
     def subscribe_cos_updates(self, behavior_name, callback):
         """Register a behavior to receive CoS updates"""
-        self.subscribers[behavior_name] = callback
+        self.cos_subscribers[behavior_name] = callback
         
     def publish_cos_state(self, behavior_name, cos_value):
         """Publish CoS state to subscribed behavior"""
-        if behavior_name in self.subscribers:
-            self.subscribers[behavior_name](cos_value)
+        if behavior_name in self.cos_subscribers:
+            self.cos_subscribers[behavior_name](cos_value)
+
+    def subscribe_cof_updates(self, behavior_name, callback):
+        """Register a behavior to receive CoF updates"""
+        self.cof_subscribers[behavior_name] = callback
+
+    def publish_cof_state(self, behavior_name, cof_value):
+        """Publish CoF state to subscribed behavior"""
+        if behavior_name in self.cof_subscribers:
+            self.cof_subscribers[behavior_name](cof_value)
     
-    def _update_and_publish_state(self, state_data, cos_condition, requesting_behavior=None):
+    def _update_and_publish_state(self, state_data, cos_condition, cof_condition=False, requesting_behavior=None):
         """Generic state update and CoS publishing"""
         cos_value = 5.0 if cos_condition else 0.0
+        cof_value = 5.0 if cof_condition else 0.0
         
         if requesting_behavior:
             # Add timestamp and store in shared state
             state_data['last_updated'] = time.time()
+            state_data['cos_value'] = cos_value
+            state_data['cof_value'] = cof_value
             self.shared_states[requesting_behavior] = state_data
             
             # Publish CoS for continuous calls
             self.publish_cos_state(requesting_behavior, cos_value)
+            self.publish_cof_state(requesting_behavior, cof_value)
         # For service calls, just return the data without publishing
         
-        return cos_condition, state_data
+        return cos_condition, cof_condition, state_data
     
     def reset(self):
         """Reset interactor state - to be overridden"""
@@ -54,30 +68,41 @@ class PerceptionInteractor(BaseInteractor):
 
         # Simulation parameters for object finding behavior
         self.search_attempts = 0
-        self.tracking_loss_probability = 0.3  # Probability to lose tracking on each
+        self.tracking_loss_probability = 0.1  # Probability to lose tracking on each
         self.max_tracking_loss_duration = 5   # Max steps to lose tracking
         self.in_tracking_loss = False
         self.tracking_loss_remaining = 0
+        self.max_search_attempts = kwargs.get('max_search_attempts', 50) # Max attempts before reporting failure
 
     def find_object(self, name, requesting_behavior=None):
         """Unified find object method - behaves differently based on requesting_behavior"""
-        target_found, location, angle = self._find_object_internal(name)
-        
+        target_found, location, angle, failure_reason = self._find_object_internal(name)
+
+        # Determine CoF condition
+        cof_condition = (failure_reason is not None)
+
         state_data = {
             'target_name': name,
             'target_found': target_found,
             'target_location': location,
-            'target_angle': angle
+            'target_angle': angle,
+            'failure_reason': failure_reason
         }
         
         # Use base class helper for state management and publishing
-        self._update_and_publish_state(state_data, target_found, requesting_behavior)
+        self._update_and_publish_state(state_data, target_found, cof_condition, requesting_behavior)
         
         return target_found, location, angle
         
     def _find_object_internal(self, name):
         """Internal object finding logic"""
         self.search_attempts += 1
+        failure_reason = None
+
+        # Check for search timeout failure
+        if self.search_attempts > self.max_search_attempts:
+            failure_reason = f"Search timeout: {name} not found after {self.max_search_attempts} attempts"
+            return False, None, None, failure_reason
 
         # Check if we should start a tracking loss period
         if not self.in_tracking_loss and random.random() < self.tracking_loss_probability:
@@ -89,12 +114,12 @@ class PerceptionInteractor(BaseInteractor):
             self.tracking_loss_remaining -= 1
             if self.tracking_loss_remaining <= 0:
                 self.in_tracking_loss = False
-            return False, None, None
+            return False, None, None, None
 
         # Normal detection logic
         if name in self.objects and self.search_attempts >= 3:
-            return True, self.objects[name]['location'], self.objects[name]
-        return False, None, None
+            return True, self.objects[name]['location'], self.objects[name], None
+        return False, None, None, None
     
     def register_object(self, name, location, angle=torch.tensor([0.0, 0.0, 0.0])):
         """Register or update an object's location and angle."""
@@ -126,28 +151,60 @@ class MovementInteractor(BaseInteractor):
         self.max_speed = max_speed
         self.gain = gain
         self.stop_threshold = stop_threshold
+
+        # Failure simulation parameters
+        self.move_attempts = 0
+        self.stuck_threshold = kwargs.get('stuck_threshold', 0.01) # Minimum movement to consider "not stuck"
+        self.previous_position = self.robot_position.clone()
             
     def move_to(self, target_location, requesting_behavior=None):
+        """Move method for robot movement"""
+        failure_reason = None
+
         # For continuous calls, actually move the robot
         if requesting_behavior:
             self.move_towards(target_location)
+            self.move_attempts += 1
+
+        # Check for movement failures
+        if self._is_stuck():
+            failure_reason = "Robot appears to be stuck (no movement progress)"
+
 
         # Check arrival status
         arrived = self.is_at(target_location)
         position = self.get_position()
+
+        # Reset movement attempts if arrived
+        if arrived:
+            self.move_attempts = 0
         
+        # Determine CoF condition
+        cof_condition = (failure_reason is not None)
+
+        if failure_reason is not None:
+            print(f"MovementInteractor.move_to failure: {failure_reason}")
+
         state_data = {
             'target_location': target_location,
             'arrived': arrived,
             'distance': self.calculate_distance(target_location),
-            'position': position
+            'position': position,
+            'move_attempts': self.move_attempts,
+            'failure_reason': failure_reason
         }
         
         # Use base class helper for state management and publishing
-        self._update_and_publish_state(state_data, arrived, requesting_behavior)
+        self._update_and_publish_state(state_data, arrived, cof_condition, requesting_behavior)
         
         return arrived, position
                 
+    def _is_stuck(self):
+        if self.move_attempts < 10:
+            return False
+        
+        movement = torch.norm(self.robot_position - self.previous_position)
+        return movement < self.stuck_threshold
 
     def get_position(self):
         """Get the current robot position."""
@@ -175,6 +232,8 @@ class MovementInteractor(BaseInteractor):
         Plan and execute a single bounded step toward target.
         Returns the applied motor command tensor [dx, dy, dz] or None if arrived/invalid.
         """
+        self.previous_position = self.robot_position.clone()
+
         if target_location is None or self.is_at(target_location):
             return None
 
@@ -261,15 +320,23 @@ class GripperInteractor(BaseInteractor):
         reachable = self.gripper_can_reach(target_location)
         position = self.get_position()
 
+        # Determine failure condition
+        failure_reason = None
+        if not reachable:
+            failure_reason = f"Target location {target_location} is out of gripper reach (max {self.max_reach})."
+
+        cof_condition = (failure_reason is not None)
+
         distance = float(torch.norm(target_location - self.gripper_position)) if target_location is not None else float('inf')
 
         state_data = {
             'target_location': target_location,
             'reachable': reachable,
-            'distance': distance
+            'distance': distance,
+            'failure_reason': failure_reason
         }
 
-        self._update_and_publish_state(state_data, reachable, requesting_behavior)
+        self._update_and_publish_state(state_data, reachable, cof_condition, requesting_behavior)
 
         return reachable, position
 
@@ -277,21 +344,28 @@ class GripperInteractor(BaseInteractor):
     def reach_for(self, target_location, requesting_behavior=None):   
         """Continuous publisher for active behaviors"""
         motor_cmd = None
+        failure_reason = None
 
         # For continous calls, actually move the gripper
         if requesting_behavior:
-            motor_cmd = self.gripper_move_towards(target_location)
+            if not self.gripper_can_reach(target_location):
+                failure_reason = f"Target location {target_location} is out of gripper reach (max {self.max_reach})."
+            else:
+                motor_cmd = self.gripper_move_towards(target_location)
 
         at_target = self.gripper_is_at(target_location)
         position = self.get_position()
 
+        cof_condition = (failure_reason is not None)
+
         state_data = {
             'target_location': target_location,
             'at_target': at_target,
-            'motor_command': motor_cmd
+            'motor_command': motor_cmd,
+            'failure_reason': failure_reason
         }
 
-        self._update_and_publish_state(state_data, at_target, requesting_behavior)
+        self._update_and_publish_state(state_data, at_target, cof_condition, requesting_behavior)
         
         return at_target, position, motor_cmd
     
@@ -303,32 +377,36 @@ class GripperInteractor(BaseInteractor):
         motor_cmd_orient = None
         motor_cmd_reach = None
         grabbed = False
+        failure_reason = None
 
         # For continuous calls, execute grab sequence stepwise
         if requesting_behavior:
-            # First orient gripper to target if needed
-            if not self.is_oriented(target_orientation):
-                motor_cmd_orient = self.gripper_rotate_towards(target_orientation)
+            if not self.gripper_can_reach(target_location):
+                failure_reason = f"Target location {target_location} is out of gripper reach (max {self.max_reach})."
+            else:
+                # First orient gripper to target if needed
+                if not self.is_oriented(target_orientation):
+                    motor_cmd_orient = self.gripper_rotate_towards(target_orientation)
 
-            # Open gripper if needed, then reach
-            elif not self.gripper_is_open and self.initial_approach:
-                self.open_gripper()
-                self.initial_approach = False
+                # Open gripper if needed, then reach
+                elif not self.gripper_is_open and self.initial_approach:
+                    self.open_gripper()
+                    self.initial_approach = False
 
-            # Move gripper to target location - fine reaching!
-            elif not self.gripper_is_at(target_location):
-                motor_cmd_reach = self.gripper_move_towards(target_location)
+                # Move gripper to target location - fine reaching!
+                elif not self.gripper_is_at(target_location):
+                    motor_cmd_reach = self.gripper_move_towards(target_location)
 
-            # Once at target, close gripper
-            elif self.gripper_is_open:
-                self.close_gripper()
+                # Once at target, close gripper
+                elif self.gripper_is_open:
+                    self.close_gripper()
         
-        # Finally, check if object is held
-        grabbed = self.has_object(gripper_position=self.get_position(), object_position=target_location)
+                # Finally, check if object is held
+                grabbed = self.has_object(gripper_position=self.get_position(), object_position=target_location)
 
-        if grabbed:
-            grab_offset = target_location - self.gripper_position
-            self.grabbed_objects[target_name] = grab_offset
+                if grabbed:
+                    grab_offset = target_location - self.gripper_position
+                    self.grabbed_objects[target_name] = grab_offset
 
         else:
             # For service calls, check current state
@@ -338,6 +416,8 @@ class GripperInteractor(BaseInteractor):
             if at_target and oriented and not self.gripper_is_open:
                 grabbed = self.has_object(gripper_position=self.get_position(), object_position=target_location)
 
+        cof_condition = (failure_reason is not None)
+
         state_data = {
             'target_name': target_name,
             'target_location': target_location,
@@ -345,11 +425,12 @@ class GripperInteractor(BaseInteractor):
             'grabbed': grabbed,
             'at_target': self.gripper_is_at(target_location),
             'oriented': self.is_oriented(target_orientation),
-            'gripper_open': self.is_open
+            'gripper_open': self.is_open,
+            'failure_reason': failure_reason
         }
 
         # Update shared state with final grab result
-        self._update_and_publish_state(state_data, grabbed, requesting_behavior)
+        self._update_and_publish_state(state_data, grabbed, cof_condition, requesting_behavior)
     
         return grabbed, self.get_position(), motor_cmd_orient, motor_cmd_reach
 

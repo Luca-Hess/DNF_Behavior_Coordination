@@ -52,6 +52,11 @@ def initalize_log(behavior_chain):
         log[f'{behavior_name}_cos_activation'] = []
         log[f'{behavior_name}_cos_activity'] = []
         log[f'{behavior_name}_cos_active'] = []
+
+        # CoF logs (activation and activity)
+        log[f'{behavior_name}_cof_activation'] = []
+        log[f'{behavior_name}_cof_activity'] = []
+        log[f'{behavior_name}_cof_active'] = []
         
         # Precondition logs (activation and activity)
         log[f'{behavior_name}_precond_activation'] = []
@@ -64,6 +69,14 @@ def initalize_log(behavior_chain):
         log[f'{behavior_name}_check_intention_activation'] = []
         log[f'{behavior_name}_check_intention_activity'] = []
         log[f'{behavior_name}_check_confidence_low'] = []
+
+    # Log system-level nodes
+    log['system_cos_activation'] = []
+    log['system_cos_activity'] = []
+    log['system_cof_activation'] = []
+    log['system_cof_activity'] = []
+    log['system_success'] = []
+    log['system_failure'] = []
     
     return log
 
@@ -94,6 +107,11 @@ def update_log(log, state, step, behavior_chain):
             log[f'{behavior_name}_cos_activation'].append(behavior_state.get('cos_activation', 0.0))
             log[f'{behavior_name}_cos_activity'].append(behavior_state['cos_activity'])
             log[f'{behavior_name}_cos_active'].append(1.0 if behavior_state['cos_active'] else 0.0)
+
+            # Log CoF activation and activity  
+            log[f'{behavior_name}_cof_activation'].append(behavior_state.get('cof_activation', 0.0))
+            log[f'{behavior_name}_cof_activity'].append(behavior_state['cof_activity'])
+            log[f'{behavior_name}_cof_active'].append(1.0 if behavior_state['cof_active'] else 0.0)
         else:
             # Fill with zeros if behavior state is None
             log[f'{behavior_name}_intention_activation'].append(0.0)
@@ -102,6 +120,9 @@ def update_log(log, state, step, behavior_chain):
             log[f'{behavior_name}_cos_activation'].append(0.0)
             log[f'{behavior_name}_cos_activity'].append(0.0)
             log[f'{behavior_name}_cos_active'].append(0.0)
+            log[f'{behavior_name}_cof_activation'].append(0.0)
+            log[f'{behavior_name}_cof_activity'].append(0.0)
+            log[f'{behavior_name}_cof_active'].append(0.0)
     
     # Log precondition states
     if 'preconditions' in state:
@@ -140,6 +161,15 @@ def update_log(log, state, step, behavior_chain):
     # Log step number
     log['steps'].append(step)
 
+    # Log system-level nodes
+    if 'system' in state:
+        system_state = state['system']
+        log['system_cos_activation'].append(system_state.get('cos_activation', 0.0))
+        log['system_cos_activity'].append(system_state.get('cos_activity', 0.0))
+        log['system_cof_activation'].append(system_state.get('cof_activation', 0.0))
+        log['system_cof_activity'].append(system_state.get('cof_activity', 0.0))
+        log['system_success'].append(system_state.get('system_success', False))
+        log['system_failure'].append(system_state.get('system_failure', False))
 
 def plot_logs(log, steps, behavior_chain):
     """
@@ -151,7 +181,7 @@ def plot_logs(log, steps, behavior_chain):
         behavior_chain: List of behavior dictionaries
     """
     num_behaviors = len(behavior_chain)
-    fig, axes = plt.subplots(3, num_behaviors, figsize=(6 * num_behaviors, 12))
+    fig, axes = plt.subplots(3, num_behaviors+1, figsize=(6 * num_behaviors, 12))
     
     # Handle single behavior case
     if num_behaviors == 1:
@@ -165,7 +195,7 @@ def plot_logs(log, steps, behavior_chain):
     for col, level in enumerate(behavior_chain):
         behavior_name = level['name']
           
-        # Row 1: Intention + CoS (Activation & Activity combined)
+        # Row 1: Intention, CoS & CoF (Activation & Activity combined)
         axes[0, col].plot(time_steps, log[f'{behavior_name}_intention_activation'][:steps], 
                          'b--', label='Intention Activation', linewidth=2, alpha=0.7)
         axes[0, col].plot(time_steps, log[f'{behavior_name}_intention_activity'][:steps], 
@@ -174,6 +204,10 @@ def plot_logs(log, steps, behavior_chain):
                          'r--', label='CoS Activation', linewidth=2, alpha=0.7)
         axes[0, col].plot(time_steps, log[f'{behavior_name}_cos_activity'][:steps], 
                          'r-', label='CoS Activity', linewidth=2)
+        axes[0, col].plot(time_steps, log[f'{behavior_name}_cof_activation'][:steps], 
+                         'm--', label='CoF Activation', linewidth=2, alpha=0.7)
+        axes[0, col].plot(time_steps, log[f'{behavior_name}_cof_activity'][:steps], 
+                         'm-', label='CoF Activity', linewidth=2)
         axes[0, col].set_title(f'{behavior_name.title()} - Intention & CoS', fontsize=14)
         axes[0, col].set_ylabel('Value', fontsize=12)
         axes[0, col].legend()
@@ -206,6 +240,35 @@ def plot_logs(log, steps, behavior_chain):
         axes[2, col].legend()
         axes[2, col].grid(True, alpha=0.3)
         axes[2, col].set_ylim(-6, 6)
+
+    # Row 3: System Level Nodes (Three rows)
+    system_col = num_behaviors
+    
+    # System CoS
+    axes[0, system_col].plot(log['steps'], log['system_cos_activation'], 'g-', linewidth=2, label='Activation')
+    axes[0, system_col].plot(log['steps'], log['system_cos_activity'], 'g--', linewidth=2, label='Activity')
+    axes[0, system_col].set_title('System CoS')
+    axes[0, system_col].set_xlabel('Time Steps', fontsize=12)
+    axes[0, system_col].set_ylabel('Value', fontsize=12)
+    axes[0, system_col].legend()
+    axes[0, system_col].grid(True)
+    
+    # System CoF
+    axes[1, system_col].plot(log['steps'], log['system_cof_activation'], 'r-', linewidth=2, label='Activation')
+    axes[1, system_col].plot(log['steps'], log['system_cof_activity'], 'r--', linewidth=2, label='Activity')
+    axes[1, system_col].set_title('System CoF')
+    axes[1, system_col].set_xlabel('Time Steps', fontsize=12)
+    axes[1, system_col].set_ylabel('Value', fontsize=12)
+    axes[1, system_col].legend()
+    axes[1, system_col].grid(True)
+    
+    # System status overview
+    axes[2, system_col].plot(log['steps'], [1.0 if s else 0.0 for s in log['system_success']], 'g-', linewidth=3, label='Success')
+    axes[2, system_col].plot(log['steps'], [1.0 if f else 0.0 for f in log['system_failure']], 'r-', linewidth=3, label='Failure')
+    axes[2, system_col].set_title('System Status')
+    axes[2, system_col].set_ylim(-0.1, 1.1)
+    axes[2, system_col].legend()
+    axes[2, system_col].grid(True)
 
     plt.tight_layout()
     plt.show()
