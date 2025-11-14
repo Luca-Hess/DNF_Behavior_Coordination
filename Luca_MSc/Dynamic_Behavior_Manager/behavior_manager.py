@@ -24,6 +24,8 @@ from helper_functions import initalize_log, update_log, plot_logs, animate_fixed
 
 import behavior_config
 
+import rclpy
+
 class BehaviorManager():
     def __init__(self, behaviors=list, args=dict(), debug=False):
         self.behavior_args = args
@@ -221,6 +223,16 @@ class BehaviorManager():
             # Set up check behavior to publish back to the same interactor
             level['check'].set_interactor(interactor)
 
+    def clear_subscriptions(self, interactors):
+        """Clear all subscriptions from interactors and release check behaviors"""
+        # Clear interactor subscriptions from base interactor class
+        interactors.reset()
+            
+        # Release check behaviors
+        for level in self.behavior_chain:
+            level['check'].set_interactor(None)
+        
+
 
     def _get_active_behavior(self):
         """Determine which behavior should be actively interacting with world"""
@@ -306,10 +318,12 @@ class BehaviorManager():
 
         # Reset system-level nodes
         self.system_cos.reset()
+        self.system_cos.clear_connections()
         self.system_cof.reset()
+        self.system_cof.clear_connections()        
 
         self.debug = False
-        self.success_actions_executed.clear()
+        self.success_actions_executed.clear()        
     
 
     def execute_step(self, interactors, external_input=6.0):
@@ -466,9 +480,20 @@ if __name__ == "__main__":
     print("Starting find behavior for 'cup'...")
     i = 0
 
+    state = {}
+    state2 = {}
+    initial = True
+
     for step in range(1200):
         # Execute find behavior
-        state = find_move.execute_step(interactors, external_input)
+        if not state.get('system', {}).get('system_success', False):
+            state = find_move.execute_step(interactors, external_input)
+
+        if state.get('system', {}).get('system_success', False) and initial:
+            initial = False
+            find_move.reset()
+            find_move.clear_subscriptions(interactors)
+            find_move_2.setup_subscriptions(interactors)
 
         # Update the visualizer
         if visualize:
@@ -476,6 +501,13 @@ if __name__ == "__main__":
 
         # Store logs
         update_log(log, state, step, find_move.behavior_chain)
+
+        if state.get('system', {}).get('system_success', False):
+            state2 = find_move_2.execute_step(interactors, external_input)
+
+            update_log(log2, state2, i, find_move_2.behavior_chain)
+
+            i += 1
     
     print('Final Position:', interactors.movement.get_position())
     print('Gripper Position:', interactors.gripper.get_position())
@@ -484,6 +516,7 @@ if __name__ == "__main__":
     # Plotting the activities of all nodes over time
     if not visualize:
         plot_logs(log, step, find_move.behavior_chain)
+        plot_logs(log2, i, find_move_2.behavior_chain)
         #animate_fixed_chain(log, find_move.behavior_chain)
 
     # Create animation

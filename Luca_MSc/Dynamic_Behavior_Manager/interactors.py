@@ -57,6 +57,8 @@ class BaseInteractor:
     def reset(self):
         """Reset interactor state - to be overridden"""
         self.shared_states.clear()
+        self.cos_subscribers.clear()
+        self.cof_subscribers.clear()
 
 class PerceptionInteractor(BaseInteractor):
     def __init__(self, get_robot_position=None, **kwargs):

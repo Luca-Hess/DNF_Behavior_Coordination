@@ -121,6 +121,10 @@ class ElementaryBehavior(nn.Module):
         self.CoS.reset()
         self.CoF.reset()
 
+        self.intention.clear_connections()
+        self.CoS.clear_connections()
+        self.CoF.clear_connections()
+
         self.is_active = False
         self.is_completed = False
         self.is_failed = False

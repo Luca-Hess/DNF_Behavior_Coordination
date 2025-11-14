@@ -58,7 +58,7 @@ class Field(nn.Module):
 
         if self._dimensions == 0:
             ksize = ()
-            print("Warning: 0D field, no spatial interactions.")
+            #print("Warning: 0D field, no spatial interactions.")
         else:
             ksize = (kernel_size,) * self._dimensions
         
@@ -144,6 +144,9 @@ class Field(nn.Module):
             "source": source_field,
             "weight": w_tensor,
         })
+
+    def clear_connections(self):
+        self.in_connections.clear()
 
     def cache_prev(self):
         """Call once per global step (before any forward) to snapshot firing for synchronous updates."""
