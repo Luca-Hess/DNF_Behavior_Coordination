@@ -100,7 +100,7 @@ class BehaviorManager():
                 required_behaviors.add(base_name)
         
         # Create precondition nodes for all behaviors
-        preconditions = self.nodes_list(node_params={name: {} for name in required_behaviors}, type_str="precond")
+        preconditions = self.nodes_list(node_params={name: {'resting_level': -1.0} for name in required_behaviors}, type_str="precond")
 
         # Create system level CoS and CoF nodes
         system_level_nodes = self.initialize_system_level_nodes(behaviors)
@@ -177,7 +177,7 @@ class BehaviorManager():
 
         # System-level connections
         # System Intention activates all precondition nodes (which inhibit their respective behavior intentions until CoS is achieved)
-        system_intention_to_preconds = 3.0
+        system_intention_to_preconds = 4.0
         system_intention_to_behaviors = 5.0
         for level in self.behavior_chain:
             self.system_intention.connection_to(level['precondition'], system_intention_to_preconds)
@@ -472,19 +472,13 @@ if __name__ == "__main__":
             'target_object': 'cup',
             'drop_off_target': 'transport_target'
         }, debug=False)
-    
-    find_move_2 = BehaviorManager(
-        behaviors=['find', 'move', 'check_reach', 'reach_for', 'grab_transport'],
-        args={ 
-            'target_object': 'bottle',
-        }, debug=False)
+
 
     # Log all activations and activities for plotting
     log = initalize_log(find_move.behavior_chain)
-    log2 = initalize_log(find_move_2.behavior_chain)
 
     # Create simulation visualizer
-    visualize = False
+    visualize = True
     if visualize:
         matplotlib.use('TkAgg')  # Use TkAgg backend which supports animation better
         visualizer = RobotSimulationVisualizer(behavior_chain=find_move.behavior_chain)
@@ -492,7 +486,7 @@ if __name__ == "__main__":
 
 
     # External input activates find_grab behavior sequence
-    external_input = 10.0
+    external_input = 6.0
 
     # Create interactors with a test object
     interactors = RobotInteractors()
@@ -525,8 +519,7 @@ if __name__ == "__main__":
 
     for step in range(1200):
         # Execute find behavior
-        if not state.get('system', {}).get('system_success', False):
-            state = find_move.execute_step(interactors, external_input)
+        state = find_move.execute_step(interactors, external_input)
 
         # if state.get('system', {}).get('system_success', False) and initial:
         #     initial = False

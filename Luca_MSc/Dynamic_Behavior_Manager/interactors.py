@@ -412,11 +412,14 @@ class GripperInteractor(BaseInteractor):
 
         else:
             # For service calls, check current state
-            at_target = self.gripper_is_at(target_location)
+            # Update gripper and object positions first
+            self.get_position()
+
+            at_target = self.gripper_is_at(self.grabbed_objects[target_name])
             oriented = self.is_oriented(target_orientation)
 
             if at_target and oriented and not self.gripper_is_open:
-                grabbed = self.has_object(gripper_position=self.get_position(), object_position=target_location)
+                grabbed = self.has_object(gripper_position=self.get_position(), object_position= self.grabbed_objects[target_name])
 
         cof_condition = (failure_reason is not None)
 
@@ -457,6 +460,7 @@ class GripperInteractor(BaseInteractor):
             if hasattr(self, '_robot_interactors') and object_name in self._robot_interactors.perception.objects:
                 new_position = self.gripper_position
                 self._robot_interactors.perception.objects[object_name]['location'] = new_position
+                self.grabbed_objects[object_name] = new_position
             
             # Update in perception.target_states (if it exists there too)
             if hasattr(self, '_robot_interactors') and object_name in self._robot_interactors.perception.target_states:
