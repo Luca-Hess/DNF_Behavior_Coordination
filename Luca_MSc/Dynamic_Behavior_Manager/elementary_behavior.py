@@ -34,26 +34,31 @@ class ElementaryBehavior(nn.Module):
             params.update(field_params)
 
         # Create the intention node that drives behavior execution
-        self.intention = Field(**params)
+        self.intention = Field(**{**params})
 
         # Create the control nodes
         self.CoS = Field(**{**params})  # Condition of Satisfaction - active when behavior is fulfilled
+        self.CoS_inverter = Field(**{**params, 'resting_level': 1.0})  # Inverter for CoS - active when CoS is inactive
         self.CoF = Field(**{**params})  # Condition of Failure - active when behavior cannot be fulfilled
 
         # Initialize connection weights
-        cos_to_intention_weight = -6.0  # Inhibitory - CoS inhibits intention when satisfied 
+        cos_to_intention_weight = -7.0  # Inhibitory - CoS inhibits intention when satisfied
                                         # because the behavior does not need to be active anymore
 
-        cof_to_all_weight = -6.0        # Inhibitory - CoF inhibits both intention and CoS when failure occurs
+        cos_to_inverter_weight = -4.0
+
+        cof_to_all_weight = -7.0        # Inhibitory - CoF inhibits both intention and CoS when failure occurs
 
         # Inhibitory connection
         self.CoS.connection_to(self.intention, cos_to_intention_weight)
+        self.CoS.connection_to(self.CoS_inverter, cos_to_inverter_weight)
         self.CoF.connection_to(self.intention, cof_to_all_weight)
         self.CoF.connection_to(self.CoS, cof_to_all_weight)
 
         # Create a buffer for previous g_u (activity) values (for synchronous updates)
         self.intention.register_buffer("g_u_prev", torch.zeros_like(self.intention.g_u))
         self.CoS.register_buffer("g_u_prev", torch.zeros_like(self.CoS.g_u))
+        self.CoS_inverter.register_buffer("g_u_prev", torch.zeros_like(self.CoS.g_u))
         self.CoF.register_buffer("g_u_prev", torch.zeros_like(self.CoF.g_u))
 
         # Initialize behavior state
@@ -75,11 +80,13 @@ class ElementaryBehavior(nn.Module):
         self.intention.cache_prev()
         self.CoS.cache_prev()
         self.CoF.cache_prev()
+        self.CoS_inverter.cache_prev()
 
         # Process control fields
         intention_activation, intention_activity = self.intention(intention_input)
         cos_activation, cos_activity = self.CoS(cos_input)
         cof_activation, cof_activity = self.CoF(cof_input)
+        _, _ = self.CoS_inverter()  # Update inverter state (no external input)
 
         # Update behavior state based on field activities
         cos_active = float(cos_activity) > 0.7
@@ -120,10 +127,12 @@ class ElementaryBehavior(nn.Module):
         self.intention.reset()
         self.CoS.reset()
         self.CoF.reset()
+        self.CoS_inverter.reset()
 
         self.intention.clear_connections()
         self.CoS.clear_connections()
         self.CoF.clear_connections()
+        self.CoS_inverter.clear_connections()
 
         self.is_active = False
         self.is_completed = False

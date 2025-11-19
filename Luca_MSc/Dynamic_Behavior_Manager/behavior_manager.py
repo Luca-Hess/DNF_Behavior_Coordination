@@ -24,7 +24,7 @@ from helper_functions import initalize_log, update_log, plot_logs, animate_fixed
 
 import behavior_config
 
-import rclpy
+#import rclpy
 
 class BehaviorManager():
     def __init__(self, behaviors=list, args=dict(), debug=False):
@@ -111,17 +111,31 @@ class BehaviorManager():
             setattr(self, f"check_{name}", SanityCheckBehavior(behavior_name=name))
             setattr(self, f"{name}_precond", preconditions[f"{name}_precond"])
 
+        # Set system-level nodes as attributes
+        setattr(self, "system_intention", system_level_nodes['intention_system'])
+        setattr(self, "system_cos_reporter", system_level_nodes['cos_reporter_system'])
         setattr(self, "system_cos", system_level_nodes['cos_system'])
         setattr(self, "system_cof", system_level_nodes['cof_system'])
 
     def initialize_system_level_nodes(self, behaviors=list):
         # Setup system-level nodes
-        scale_system_CoS_resting_level = -4.0 * len(behaviors)  # Scale resting level based on number of behaviors
         node_parameters = {
-            'cos': {
-                'resting_level': scale_system_CoS_resting_level,
+            'intention': {
+                'time_scale': 100.0,
+                'resting_level': -3.0,
                 'beta': 20.0,
-                'self_connection_w0': 15.0 * len(behaviors)
+                'self_connection_w0': 1.0
+            },
+            'cos': {
+                'time_scale': 150.0,
+                'resting_level': -4.75,
+                'beta': 2.0,
+                'self_connection_w0': 6.5
+            },
+            'cos_reporter': {
+                'time_scale': 100.0,
+                'resting_level': 1.0,
+                'beta': 20.0,
             },
             'cof': {
                 'time_scale': 150.0,
@@ -151,7 +165,7 @@ class BehaviorManager():
         """Setup all neural field connections using behavior chain"""
         for i, level in enumerate(self.behavior_chain):
             # CoS to precondition (weight 6)
-            level['behavior'].CoS.connection_to(level['precondition'], 6.0)
+            level['behavior'].CoS.connection_to(level['precondition'], -6.0)
             
             # CoS to check (weight 5)
             level['behavior'].CoS.connection_to(level['check'].intention, 5.0)
@@ -159,18 +173,31 @@ class BehaviorManager():
             # Precondition to next intention (weight 6) - if there's a next level
             if level.get('has_next_precondition', False) and i + 1 < len(self.behavior_chain):
                 next_level = self.behavior_chain[i + 1]
-                level['precondition'].connection_to(next_level['behavior'].intention, 6.0)
+                level['precondition'].connection_to(next_level['behavior'].intention, -6.0)
 
         # System-level connections
-        # System CoS: Requires ALL behavior CoS nodes to be active (AND logic)
-        cos_weight = 4.0
+        # System Intention activates all precondition nodes (which inhibit their respective behavior intentions until CoS is achieved)
+        system_intention_to_preconds = 3.0
+        system_intention_to_behaviors = 5.0
         for level in self.behavior_chain:
-            level['behavior'].CoS.connection_to(self.system_cos, cos_weight)
+            self.system_intention.connection_to(level['precondition'], system_intention_to_preconds)
+            self.system_intention.connection_to(level['behavior'].intention, system_intention_to_behaviors)
+
+        # System CoS Reporter: Inverted CoS from all behaviors (AND logic)
+        # Any activity in CoS inverters will inhibit reporter
+        cos_inverter_to_reporter_weight = -4.0
+        for level in self.behavior_chain:
+            level['behavior'].CoS_inverter.connection_to(self.system_cos_reporter, cos_inverter_to_reporter_weight)
         
         # System CoF: ANY behavior CoF can trigger system failure (OR logic)
         cof_weight = 4.0
         for level in self.behavior_chain:
             level['behavior'].CoF.connection_to(self.system_cof, cof_weight)
+
+        # System CoS: Requires ALL behavior CoS nodes to be active (AND logic)
+        # Achieved via inverted CoS connections to reporter, then reporter to system CoS
+        reporter_to_system_cos_weight = 6.0
+        self.system_cos_reporter.connection_to(self.system_cos, reporter_to_system_cos_weight)
 
         # Make System CoS and CoF mutually exclusive (high inhibitory weights)
         self.system_cos.connection_to(self.system_cof, -15.0)
@@ -269,11 +296,15 @@ class BehaviorManager():
         """Process system-level CoS and CoF nodes"""
         
         # Update system-level nodes (they receive inputs from behavior nodes automatically via connections)
+        self.system_intention.cache_prev()
         self.system_cos.cache_prev()
+        self.system_cos_reporter.cache_prev()
         self.system_cof.cache_prev()
         
         # Execute system-level dynamics
+        system_intention_activation, system_intention_activity = self.system_intention()
         system_cos_activation, system_cos_activity = self.system_cos()
+        syste_cos_reporter_activation, system_cos_reporter_activity = self.system_cos_reporter()
         system_cof_activation, system_cof_activity = self.system_cof()
         
         # Determine system state
@@ -281,8 +312,12 @@ class BehaviorManager():
         system_failure = float(system_cof_activity) > 0.7
         
         system_state = {
+            'intention_activation': float(system_intention_activation.detach()),
+            'intention_activity': float(system_intention_activity.detach()),
             'cos_activation': float(system_cos_activation.detach()),
             'cos_activity': float(system_cos_activity.detach()),
+            'cos_reporter_activation': float(syste_cos_reporter_activation.detach()),
+            'cos_reporter_activity': float(system_cos_reporter_activity.detach()),
             'cof_activation': float(system_cof_activation.detach()),
             'cof_activity': float(system_cof_activity.detach()),
             'system_success': system_success,
@@ -290,7 +325,7 @@ class BehaviorManager():
             'system_status': self._determine_system_status(system_success, system_failure)
         }
         
-        self._debug_print(f"System state: {system_state['system_status']} (CoS: {system_state['cos_activity']:.3f}, CoF: {system_state['cof_activity']:.3f})")
+        self._debug_print(f"System state: {system_state['system_status']} (Intention: {system_state['intention_activity']:.3f}, CoS: {system_state['cos_activity']:.3f}, CoF: {system_state['cof_activity']:.3f})")
         
         return system_state
 
@@ -317,6 +352,8 @@ class BehaviorManager():
             level['check'].reset()
 
         # Reset system-level nodes
+        self.system_intention.reset()
+        self.system_intention.clear_connections()
         self.system_cos.reset()
         self.system_cos.clear_connections()
         self.system_cof.reset()
@@ -344,12 +381,14 @@ class BehaviorManager():
             if service_args[0] is not None:  # Only call if we have valid args
                 method(*service_args, requesting_behavior=level['name'])
                 self._debug_print(f"Executed continuous interaction for {active_behavior} with args {service_args}")
-                
+
+        # External input to system intention node
+        self.system_intention(external_input)
+
         # Execute all behaviors (just DNF dynamics)
         states = {}
         for level in self.behavior_chain:
-            ext_input = external_input if level['name'] == self.behavior_chain[0]['name'] else 0.0 # Only first behavior gets external input
-            states[level['name']] = level['behavior'].execute(ext_input)
+            states[level['name']] = level['behavior'].execute(external_input=0.0)
 
         self._debug_print(f"Behavior states: {states}")
 
@@ -489,25 +528,26 @@ if __name__ == "__main__":
         if not state.get('system', {}).get('system_success', False):
             state = find_move.execute_step(interactors, external_input)
 
-        if state.get('system', {}).get('system_success', False) and initial:
-            initial = False
-            find_move.reset()
-            find_move.clear_subscriptions(interactors)
-            find_move_2.setup_subscriptions(interactors)
+        # if state.get('system', {}).get('system_success', False) and initial:
+        #     initial = False
+        #     find_move.reset()
+        #     find_move.clear_subscriptions(interactors)
+        #     find_move_2.setup_subscriptions(interactors)
 
         # Update the visualizer
         if visualize:
             simulation_states.append(state)
 
+
         # Store logs
         update_log(log, state, step, find_move.behavior_chain)
 
-        if state.get('system', {}).get('system_success', False):
-            state2 = find_move_2.execute_step(interactors, external_input)
-
-            update_log(log2, state2, i, find_move_2.behavior_chain)
-
-            i += 1
+        # if state.get('system', {}).get('system_success', False):
+        #     state2 = find_move_2.execute_step(interactors, external_input)
+        #
+        #     update_log(log2, state2, i, find_move_2.behavior_chain)
+        #
+        #     i += 1
     
     print('Final Position:', interactors.movement.get_position())
     print('Gripper Position:', interactors.gripper.get_position())
@@ -516,7 +556,7 @@ if __name__ == "__main__":
     # Plotting the activities of all nodes over time
     if not visualize:
         plot_logs(log, step, find_move.behavior_chain)
-        plot_logs(log2, i, find_move_2.behavior_chain)
+        #plot_logs(log2, i, find_move_2.behavior_chain)
         #animate_fixed_chain(log, find_move.behavior_chain)
 
     # Create animation
