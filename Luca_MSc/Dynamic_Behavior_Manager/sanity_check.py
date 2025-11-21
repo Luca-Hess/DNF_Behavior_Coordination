@@ -7,6 +7,7 @@ class SanityCheckBehavior(CheckBehavior):
     def __init__(self, behavior_name=None, field_params=None):
         super().__init__(field_params)
         self.cos_input = 5.0
+        self.cof_input = 0.0
         self.behavior_name = behavior_name  # Name of the associated elementary behavior
         self.interactor = None              # To be set externally if needed
 
@@ -39,15 +40,26 @@ class SanityCheckBehavior(CheckBehavior):
         """Process the result of the sanity check and update CoS input to the associated elementary behavior accordingly"""
         if check_failed_func(result):
             # Check failed - set CoS input to 0
-            cos_value = 0.0 
+            cos_value = 0.0
+
+            # Further assess if CoF has been reached and set CoF input accordingly
+            if result[1]:
+                cof_value = 5.0
+            else:
+                cof_value = 0.0
+
 
         else:
             # Check passed - set/confirm CoS input at 5.0
             cos_value = 5.0
+            cof_value = 0.0
 
-        # Update CoS input of the associated elementary behavior
+        # Update CoS & CoF input of the associated elementary behavior
         if self.interactor and behavior_name:
             self.interactor.publish_cos_state(behavior_name, cos_value)
+            self.interactor.publish_cof_state(behavior_name, cof_value)
+
 
         # Update internal CoS state
         self.cos_input = cos_value
+        self.cof_input = cof_value

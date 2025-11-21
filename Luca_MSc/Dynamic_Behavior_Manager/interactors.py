@@ -80,7 +80,8 @@ class PerceptionInteractor(BaseInteractor):
         """Unified find object method - behaves differently based on requesting_behavior"""
         target_found, location, angle, failure_reason = self._find_object_internal(name)
 
-        # Determine CoF condition
+        # Determine CoS & CoF condition
+        cos_condition = target_found
         cof_condition = (failure_reason is not None)
 
         state_data = {
@@ -94,7 +95,7 @@ class PerceptionInteractor(BaseInteractor):
         # Use base class helper for state management and publishing
         self._update_and_publish_state(state_data, target_found, cof_condition, requesting_behavior)
         
-        return target_found, location, angle
+        return cos_condition, cof_condition, location, angle
         
     def _find_object_internal(self, name):
         """Internal object finding logic"""
@@ -120,7 +121,7 @@ class PerceptionInteractor(BaseInteractor):
 
         # Normal detection logic
         if name in self.objects and self.search_attempts >= 3:
-            return True, self.objects[name]['location'], self.objects[name], None
+            return True, self.objects[name]['location'], self.objects[name]['angle'], None
         return False, None, None, None
     
     def register_object(self, name, location, angle=torch.tensor([0.0, 0.0, 0.0])):
@@ -181,7 +182,8 @@ class MovementInteractor(BaseInteractor):
         if arrived:
             self.move_attempts = 0
         
-        # Determine CoF condition
+        # Determine CoS & CoF condition
+        cos_condition = arrived
         cof_condition = (failure_reason is not None)
 
         if failure_reason is not None:
@@ -199,7 +201,7 @@ class MovementInteractor(BaseInteractor):
         # Use base class helper for state management and publishing
         self._update_and_publish_state(state_data, arrived, cof_condition, requesting_behavior)
         
-        return arrived, position
+        return cos_condition, cof_condition, position
                 
     def _is_stuck(self):
         if self.move_attempts < 10:
@@ -253,6 +255,12 @@ class MovementInteractor(BaseInteractor):
 
         # Update pose (planar)
         self.robot_position[:2] += step_vec_2d
+
+        # Also update the gripper and (if they exist, grabbed objects) position
+        if hasattr(self, '_robot_interactors'):
+            if hasattr(self._robot_interactors, 'gripper'):
+                self._robot_interactors.gripper.get_position()
+
 
         motor_cmd = torch.tensor([step_vec_2d[0].item(), step_vec_2d[1].item(), 0.0])
         return motor_cmd
@@ -319,14 +327,16 @@ class GripperInteractor(BaseInteractor):
             
     def reach_check(self, target_location, requesting_behavior=None):
         """Continuous publisher for active behaviors"""
-        reachable = self.gripper_can_reach(target_location)
+
         position = self.get_position()
+        reachable = self.gripper_can_reach(target_location)
 
         # Determine failure condition
         failure_reason = None
-        if not reachable:
-            failure_reason = f"Target location {target_location} is out of gripper reach (max {self.max_reach})."
+        if not reachable and target_location[2] > self.max_reach:
+            failure_reason = f"Target location {target_location} is higher than the gripper can reach (max {self.max_reach})."
 
+        cos_condition = reachable
         cof_condition = (failure_reason is not None)
 
         distance = float(torch.norm(target_location - self.gripper_position)) if target_location is not None else float('inf')
@@ -340,7 +350,7 @@ class GripperInteractor(BaseInteractor):
 
         self._update_and_publish_state(state_data, reachable, cof_condition, requesting_behavior)
 
-        return reachable, position
+        return cos_condition, cof_condition, position
 
 
     def reach_for(self, target_location, requesting_behavior=None):   
@@ -358,6 +368,8 @@ class GripperInteractor(BaseInteractor):
         at_target = self.gripper_is_at(target_location)
         position = self.get_position()
 
+        # Determine CoS & CoF condition
+        cos_condition = at_target
         cof_condition = (failure_reason is not None)
 
         state_data = {
@@ -369,7 +381,7 @@ class GripperInteractor(BaseInteractor):
 
         self._update_and_publish_state(state_data, at_target, cof_condition, requesting_behavior)
         
-        return at_target, position, motor_cmd
+        return cos_condition, cof_condition, position, motor_cmd
     
 
     
@@ -421,6 +433,8 @@ class GripperInteractor(BaseInteractor):
             if at_target and oriented and not self.gripper_is_open:
                 grabbed = self.has_object(gripper_position=self.get_position(), object_position= self.grabbed_objects[target_name])
 
+        # Determine CoS & CoF condition
+        cos_condition = grabbed
         cof_condition = (failure_reason is not None)
 
         state_data = {
@@ -437,7 +451,7 @@ class GripperInteractor(BaseInteractor):
         # Update shared state with final grab result
         self._update_and_publish_state(state_data, grabbed, cof_condition, requesting_behavior)
     
-        return grabbed, self.get_position(), motor_cmd_orient, motor_cmd_reach
+        return cos_condition, cof_condition, self.get_position(), motor_cmd_orient, motor_cmd_reach
 
 
     def normalize_orientation(self):

@@ -45,7 +45,7 @@ class BehaviorManager():
                 'check': getattr(self, f"check_{self._get_base_behavior_name(name)}"),            # Sanity check behavior
                 'precondition': getattr(self, f"{self._get_base_behavior_name(name)}_precond"),   # Precondition node
                 'has_next_precondition': i < len(behaviors) - 1,                                  # Last behavior has no next precondition
-                'check_failed_func': lambda result: not result[0]                                 # State of sanity check
+                'check_failed_func': lambda result: not result[0]                                 # State of sanity check regarding CoS
             }
             for i, name in enumerate(behaviors)
         ]
@@ -451,7 +451,6 @@ class BehaviorManager():
                 if service_args[0] is not None:
                     # Single service call to verify current state of behavior goal
                     result = method(*service_args, requesting_behavior=None)
-                    
                     # Check behavior processes result and updates its own CoS input to the associated elementary behavior
                     level['check'].process_sanity_result(result, level['check_failed_func'], level['name'])
                     
@@ -478,7 +477,7 @@ if __name__ == "__main__":
     log = initalize_log(find_move.behavior_chain)
 
     # Create simulation visualizer
-    visualize = False
+    visualize = True
     if visualize:
         matplotlib.use('TkAgg')  # Use TkAgg backend which supports animation better
         visualizer = RobotSimulationVisualizer(behavior_chain=find_move.behavior_chain)

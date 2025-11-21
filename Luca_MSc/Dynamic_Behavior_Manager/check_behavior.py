@@ -73,7 +73,6 @@ class CheckBehavior(nn.Module):
         intention_activation, intention_activity = self.intention(intention_input)
         confidence_activation, confidence_activity = self.confidence(confidence_input)
 
-
         # Return current behavior state
         return {
             'intention_activation': float(intention_activation.detach()),

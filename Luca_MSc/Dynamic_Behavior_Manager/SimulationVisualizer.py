@@ -129,7 +129,6 @@ class RobotSimulationVisualizer:
 
         # Get target position if available
         target_position = state.get('target_position', {})
-        print(state['target_position'])
 
         drop_off_position = None
         # Get drop-off position if available
