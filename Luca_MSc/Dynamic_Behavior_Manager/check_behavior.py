@@ -26,7 +26,7 @@ class CheckBehavior(nn.Module):
             'time_step': 5.0,
             'time_scale': 100.0,
             'resting_level': -3.0,
-            'noise_strength': 0.01,
+            'noise_strength': 0.00,
             'beta': 100.0,  # Steeper sigmoid for clearer decisions
             'self_connection_w0': 1.0
         }

@@ -124,18 +124,17 @@ class RobotSimulationVisualizer:
     def update(self, state, interactors=None):
         """Update the visualization with the current state."""
         # Extract positions from state
-        robot_position = state.get('robot', {}).get('position', [0, 0, 0])
-        gripper_position = state.get('gripper', {}).get('position', [0, 0, 0])
-        target_position = None
-        drop_off_position = None
+        robot_position = state.get('robot_pos', {})
+        gripper_position = state.get('gripper_pos', {})
 
         # Get target position if available
-        if state.get('find', {}).get('target_location') is not None:
-            target_position = state['find']['target_location'].tolist()
+        target_position = state.get('target_position', {})
+        print(state['target_position'])
 
+        drop_off_position = None
         # Get drop-off position if available
-        if interactors is not None and "drop_off" in interactors.perception.objects:
-            drop_off_position = interactors.perception.objects["drop_off"]['location'].tolist()
+        if interactors is not None and "transport_target" in interactors.perception.objects:
+            drop_off_position = interactors.perception.objects["transport_target"]['location'].tolist()
 
             if self.drop_off is None:
                 self.drop_off = self.ax.plot([drop_off_position[0]],
@@ -170,15 +169,11 @@ class RobotSimulationVisualizer:
                 self.target_obj = self.ax.plot([target_position[0]], [target_position[1]], [target_position[2]],
                                                'o', markersize=8, color='red')[0]
 
-                # Create the tube below the target
-                self._create_tube(target_position)
             else:
                 # Update target position
                 self.target_obj.set_data([target_position[0]], [target_position[1]])
                 self.target_obj.set_3d_properties([target_position[2]])
 
-                # Update tube position
-                self._update_tube(target_position)
 
         # Create or update drop-off object and its tube
         if drop_off_position is not None:
@@ -198,8 +193,6 @@ class RobotSimulationVisualizer:
                 # Update tube position
                 self._update_drop_off_tube(drop_off_position)
 
-        # Update indicator lights based on state
-        self._update_indicators(state)
 
         # Return artists for animation
         artists = [self.floor]

@@ -212,7 +212,7 @@ def plot_logs(log, steps, behavior_chain):
         axes[0, col].set_ylabel('Value', fontsize=12)
         axes[0, col].legend()
         axes[0, col].grid(True, alpha=0.3)
-        axes[0, col].set_ylim(-6, 6)
+        axes[0, col].set_ylim(-8, 4)
         
         # Row 2: Precondition Node (Activation & Activity)
         axes[1, col].plot(time_steps, log[f'{behavior_name}_precond_activation'][:steps], 
@@ -223,7 +223,7 @@ def plot_logs(log, steps, behavior_chain):
         axes[1, col].set_ylabel('Value', fontsize=12)
         axes[1, col].legend()
         axes[1, col].grid(True, alpha=0.3)
-        axes[1, col].set_ylim(-6, 6)
+        axes[1, col].set_ylim(-4, 7)
         
         # Row 3: Check Behavior (Confidence & Intention nodes)
         axes[2, col].plot(time_steps, log[f'{behavior_name}_check_confidence_activation'][:steps], 

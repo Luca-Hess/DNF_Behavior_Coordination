@@ -177,7 +177,7 @@ class BehaviorManager():
 
         # System-level connections
         # System Intention activates all precondition nodes (which inhibit their respective behavior intentions until CoS is achieved)
-        system_intention_to_preconds = 4.0
+        system_intention_to_preconds = 5.1
         system_intention_to_behaviors = 5.0
         for level in self.behavior_chain:
             self.system_intention.connection_to(level['precondition'], system_intention_to_preconds)
@@ -478,7 +478,7 @@ if __name__ == "__main__":
     log = initalize_log(find_move.behavior_chain)
 
     # Create simulation visualizer
-    visualize = True
+    visualize = False
     if visualize:
         matplotlib.use('TkAgg')  # Use TkAgg backend which supports animation better
         visualizer = RobotSimulationVisualizer(behavior_chain=find_move.behavior_chain)
@@ -529,13 +529,16 @@ if __name__ == "__main__":
 
         # Update the visualizer
         if visualize:
+            state.update({'target_position': interactors.perception.objects['cup']['location']})
+            state.update({'robot_pos': interactors.movement.get_position()})
+            state.update({'gripper_pos': interactors.gripper.get_position()})
             simulation_states.append(state)
-
 
         # Store logs
         update_log(log, state, step, find_move.behavior_chain)
 
-        # if state.get('system', {}).get('system_success', False):
+        if state.get('system', {}).get('system_success', False):
+            break
         #     state2 = find_move_2.execute_step(interactors, external_input)
         #
         #     update_log(log2, state2, i, find_move_2.behavior_chain)
