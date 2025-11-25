@@ -285,7 +285,7 @@ from matplotlib.patches import FancyBboxPatch, Ellipse
 import matplotlib.animation as animation
 
 
-def animate_fixed_chain(log, behavior_chain):
+def animate_fixed_chain(log, behavior_chain, clean=True):
     """
     Animate the behavior chain with a hierarchical layered architecture.
     Organized into System Layer, Behavior Layer, and Robot Layer.
@@ -414,6 +414,47 @@ def animate_fixed_chain(log, behavior_chain):
             G.add_node(f"interactor_{itype}", activity=interactor_activations[f"interactor_{itype}"],
                        label=f'Robot\nInteractor\n({itype})')
 
+        # Draw summary boxes when in clean display mode
+        if clean:
+            # Positions for summary boxes
+            x_center = h_spacing * num_behaviors / 2
+            y_summary = y_system - 1.5
+
+            # System Intention summary box
+            box_intent = FancyBboxPatch((x_center - 6, y_summary), 3, 0.5,
+                                        boxstyle="round,pad=0.2", edgecolor='green',
+                                        facecolor='white', linewidth=2, zorder=2)
+            ax.add_patch(box_intent)
+            ax.text(x_center - 4.5, y_summary + 0.25, "To All Intention\nand Precond. Nodes",
+                    ha='center', va='center', fontsize=10, zorder=3)
+
+            # Connect to system_intention
+            ax.annotate('', xy=pos['system_intention'], xytext=(x_center - 4.5, y_summary),
+                        arrowprops=dict(arrowstyle='->', color='green', lw=2), zorder=1)
+
+            # System CoS summary box
+            box_cos = FancyBboxPatch((x_center - 1, y_summary), 3, 0.5,
+                                     boxstyle="round,pad=0.2", edgecolor='green',
+                                     facecolor='white', linewidth=2, zorder=2)
+            ax.add_patch(box_cos)
+            ax.text(x_center + 0.5, y_summary + 0.25, "From All CoS Nodes",
+                    ha='center', va='center', fontsize=10, zorder=3)
+
+            # Connect to system_cos
+            ax.annotate('', xy=pos['system_cos'], xytext=(x_center + 0.5, y_summary),
+                        arrowprops=dict(arrowstyle='->', color='green', lw=2), zorder=1)
+
+            # System CoF summary box
+            box_cof = FancyBboxPatch((x_center + 4, y_summary), 3, 0.5,
+                                     boxstyle="round,pad=0.2", edgecolor='green',
+                                     facecolor='white', linewidth=2, zorder=2)
+            ax.add_patch(box_cof)
+            ax.text(x_center + 5.5, y_summary + 0.25, "From All CoF Nodes",
+                    ha='center', va='center', fontsize=10, zorder=3)
+            # Connect to system_cof
+            ax.annotate('', xy=pos['system_cof'], xytext=(x_center + 5.5, y_summary),
+                        arrowprops=dict(arrowstyle='->', color='green', lw=2), zorder=1)
+
         # === ADD EDGES ===
         # System layer edges
         G.add_edge('external_input', 'system_intention', color='green')
@@ -421,12 +462,13 @@ def animate_fixed_chain(log, behavior_chain):
         G.add_edge('system_cof', 'system_cos', color='red')
 
         # System to Behavior layer edges
-        for level in behavior_chain:
-            bname = level['name']
-            G.add_edge(f"{bname}_cos", 'system_cos', color='green')
-            G.add_edge(f"{bname}_cof", 'system_cof', color='green')
-            G.add_edge('system_intention', f"{bname}_intention", color='green')
-            G.add_edge("system_intention", f"{bname}_precond", color='green')
+        if not clean:
+            for level in behavior_chain:
+                bname = level['name']
+                G.add_edge(f"{bname}_cos", 'system_cos', color='green')
+                G.add_edge(f"{bname}_cof", 'system_cof', color='green')
+                G.add_edge('system_intention', f"{bname}_intention", color='green')
+                G.add_edge("system_intention", f"{bname}_precond", color='green')
 
         for i, level in enumerate(behavior_chain):
             bname = level['name']
@@ -448,8 +490,11 @@ def animate_fixed_chain(log, behavior_chain):
             if interactor_type:
                 G.add_edge('behavior_selector', f"interactor_{interactor_type}", color='blue')
                 G.add_edge(f"{bname}_check", f"interactor_{interactor_type}", color='blue')
-                G.add_edge(f"interactor_{interactor_type}", f"{bname}_cos", color='blue')
-                G.add_edge(f"interactor_{interactor_type}", f"{bname}_cof", color='blue')
+
+                # Obscure CoS and CoF update connections in clean mode
+                if not clean:
+                    G.add_edge(f"interactor_{interactor_type}", f"{bname}_cos", color='blue')
+                    G.add_edge(f"interactor_{interactor_type}", f"{bname}_cof", color='blue')
 
         # === DRAW NODES WITH ACTIVITY COLORS ===
         for node in G.nodes():
