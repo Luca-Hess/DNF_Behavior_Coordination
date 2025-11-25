@@ -275,134 +275,247 @@ def plot_logs(log, steps, behavior_chain):
 
 
 import networkx as nx
+import matplotlib
 import matplotlib.pyplot as plt
+from matplotlib.patches import FancyBboxPatch
 import matplotlib.animation as animation
 
+
 def animate_fixed_chain(log, behavior_chain):
+    """
+    Animate the behavior chain with a hierarchical layered architecture.
+    Organized into System Layer, Behavior Layer, and Robot Layer.
+    """
+    # Set backend before creating figure
+    matplotlib.use('TkAgg')
+
     G = nx.DiGraph()
-    fig, ax = plt.subplots(figsize=(12, 10))
+    fig, ax = plt.subplots(figsize=(20, 12))
 
-    # Predefine positions: behaviors in a horizontal chain
     pos = {}
-    spacing = 15
+
+    # Calculate horizontal spacing based on number of behaviors
+    num_behaviors = len(behavior_chain)
+    h_spacing = 20 / max(num_behaviors, 1)
+
+    # Layer Y positions
+    y_system = 9
+    y_behavior_top = 6.5
+    y_behavior_mid = 5
+    y_behavior_bot = 3.5
+    y_selector = 2
+    y_robot = 0.5
+
+    # === SYSTEM LAYER ===
+    pos['external_input'] = (-0.5, y_system + 0.5)
+    pos['system_cos'] = (h_spacing * num_behaviors / 2 - 1, y_system)
+    pos['system_cof'] = (h_spacing * num_behaviors / 2 + 1, y_system)
+    pos['system_intention'] = (h_spacing * num_behaviors / 2 - 2.5, y_system)
+
+    # === BEHAVIOR LAYER ===
     for i, level in enumerate(behavior_chain):
-        x = i * spacing
-        pos[level['name']] = (x-3, 2)  # main behavior node
-        pos[f"{level['name']}_cos"] = (x+3, 2)
-        pos[f"{level['name']}_precond"] = (x+2, 2.5)
-        pos[f"{level['name']}_check"] = (x+2, 1.5)
+        x_base = i * h_spacing + 2
+        bname = level['name']
 
-    # Add interactor nodes below (y = 0)
-    interactor_types = ['perception', 'movement', 'gripper', 'state']
-    # spacing_interactors = 10
-    for i, name in enumerate(interactor_types):
-        pos[name] = (i * spacing, 0)
+        pos[f"{bname}_intention"] = (x_base - 1.2, y_behavior_top)
+        pos[f"{bname}_cos"] = (x_base, y_behavior_top)
+        pos[f"{bname}_cof"] = (x_base + 1.2, y_behavior_top)
+        pos[f"{bname}_precond"] = (x_base + 1.5, y_behavior_mid)
+        pos[f"{bname}_elementary"] = (x_base - 0.5, y_behavior_bot)
+        pos[f"{bname}_check"] = (x_base + 1.5, y_behavior_bot)
 
-    # Example: what each interactor provides to others
-    provided_info = {
-        ('perception', 'movement'): ['target_location'],
-        ('perception', 'gripper'): ['target_location', 'target_orientation'],
-        ('state', 'movement'): ['current_targets'],
-        ('state', 'gripper'): ['current_targets'],
-    }
-    # Map behaviors to what they query from interactors
-    consumed_info = {
-        'perception': ['raw_sensor_data'],
-        'movement': ['target_location', 'current_targets'],
-        'gripper': ['target_location', 'target_orientation', 'current_targets'],
-        'state': ['status', 'external_commands'],
-    }
+    pos['behavior_selector'] = (h_spacing * num_behaviors / 2, y_selector)
+
+    # === ROBOT LAYER ===
+    interactor_types = list(
+        set([level.get('interactor_type') for level in behavior_chain if level.get('interactor_type')]))
+    for i, itype in enumerate(interactor_types):
+        x_pos = 2 + i * (h_spacing * num_behaviors / max(len(interactor_types), 1))
+        pos[f"interactor_{itype}"] = (x_pos, y_robot)
+
+    def get_node_color(activity_value, threshold=0.5):
+        """Convert activity value to color gradient"""
+        if activity_value > threshold:
+            intensity = min(1.0, activity_value / 2.0)
+            return (1.0 - intensity * 0.5, 1.0, 1.0 - intensity * 0.5)
+        else:
+            return 'white'
 
     def update(frame):
         ax.clear()
         step = log['steps'][frame]
         G.clear()
 
-        edges_to_curve_exc = []
-        edges_to_curve_inh = []
+        # === DRAW LAYER BOXES ===
+        system_box = FancyBboxPatch((0, y_system - 0.8), h_spacing * num_behaviors + 2, 2,
+                                    boxstyle="round,pad=0.1", edgecolor='blue',
+                                    facecolor='lightblue', alpha=0.1, linewidth=2)
+        ax.add_patch(system_box)
+        ax.text(0.5, y_system + 1.5, 'System Layer', fontsize=14, color='blue', weight='bold')
 
-        # Add nodes and edges for this step
+        behavior_box = FancyBboxPatch((0, y_behavior_bot - 1), h_spacing * num_behaviors + 2, 5,
+                                      boxstyle="round,pad=0.1", edgecolor='green',
+                                      facecolor='lightgreen', alpha=0.1, linewidth=2)
+        ax.add_patch(behavior_box)
+        ax.text(0.5, y_behavior_top + 0.8, 'Behavior Layer', fontsize=14, color='green', weight='bold')
+
+        robot_box = FancyBboxPatch((0, y_robot - 0.8), h_spacing * num_behaviors + 2, 2,
+                                   boxstyle="round,pad=0.1", edgecolor='black',
+                                   facecolor='lightgray', alpha=0.1, linewidth=2)
+        ax.add_patch(robot_box)
+        ax.text(0.5, y_robot - 1, 'Robot Layer', fontsize=14, color='black', weight='bold')
+
+        # === ADD NODES WITH ACTIVITY-BASED COLORS ===
+        system_cos_activity = log['system_cos_activity'][frame]
+        system_cof_activity = log['system_cof_activity'][frame]
+
+        G.add_node('system_cos', activity=system_cos_activity, label='CoS')
+        G.add_node('system_cof', activity=system_cof_activity, label='CoF')
+        G.add_node('system_intention', activity=0.0, label='I')
+        G.add_node('external_input', activity=0.0, label='External Input')
+
         for level in behavior_chain:
             bname = level['name']
-            active = log[f'{bname}_intention_active'][frame] > 0.5
-            G.add_node(bname, active=active)
 
-            # Sub-nodes
-            G.add_node(f"{bname}_precond", active=log[f'{bname}_precond_active'][frame] > 0.5)
-            G.add_node(f"{bname}_cos", active=log[f'{bname}_cos_active'][frame] > 0.5)
-            G.add_node(f"{bname}_check", active=log[f'{bname}_check_confidence_activity'][frame] > 0.5)
+            intention_activity = log[f'{bname}_intention_activity'][frame]
+            cos_activity = log[f'{bname}_cos_activity'][frame]
+            cof_activity = log[f'{bname}_cof_activity'][frame]
+            precond_activity = log[f'{bname}_precond_activity'][frame]
+            check_activity = log[f'{bname}_check_confidence_activity'][frame]
 
-            # Connections
-            G.add_edge(bname, f"{bname}_cos", weight=5.0)
-            edges_to_curve_exc.append((bname, f"{bname}_cos"))
+            G.add_node(f"{bname}_intention", activity=intention_activity, label='I')
+            G.add_node(f"{bname}_cos", activity=cos_activity, label='CoS')
+            G.add_node(f"{bname}_cof", activity=cof_activity, label='CoF')
+            G.add_node(f"{bname}_precond", activity=precond_activity, label='Preco.')
+            G.add_node(f"{bname}_elementary", activity=intention_activity,
+                       label=f'{bname}\nElementary\nBehavior')
+            G.add_node(f"{bname}_check", activity=check_activity, label='Check')
 
-            G.add_edge(f"{bname}_cos", bname, weight=6)
-            edges_to_curve_inh.append((f"{bname}_cos", bname))
+        G.add_node('behavior_selector', activity=0.0, label='Behavior Selector')
 
-            G.add_edge(f"{bname}_cos", f"{bname}_precond", weight=6.0)
-            G.add_edge(f"{bname}_cos", f"{bname}_check", weight=5.0)
+        for itype in interactor_types:
+            G.add_node(f"interactor_{itype}", activity=0.0, label=f'Robot\nInteractor\n({itype})')
 
-            # Edge from intention to interactors
-            interactor_type = level.get('interactor_type', None)
+        # === ADD EDGES ===
+        G.add_edge('external_input', 'system_intention', color='green')
+        for level in behavior_chain:
+            bname = level['name']
+            G.add_edge('system_cos', f"{bname}_cos", color='green')
+            G.add_edge('system_cof', f"{bname}_cof", color='red')
+
+        for i, level in enumerate(behavior_chain):
+            bname = level['name']
+
+            G.add_edge(f"{bname}_intention", f"{bname}_cof", color='red')
+            G.add_edge(f"{bname}_cof", f"{bname}_intention", color='red')
+            G.add_edge(f"{bname}_cof", f"{bname}_cos", color='red')
+            G.add_edge(f"{bname}_cos", f"{bname}_precond", color='red')
+            G.add_edge(f"{bname}_cos", f"{bname}_elementary", color='blue')
+            G.add_edge(f"{bname}_elementary", f"{bname}_check", color='blue')
+            G.add_edge(f"{bname}_check", 'behavior_selector', color='blue')
+
+            if i < len(behavior_chain) - 1:
+                next_bname = behavior_chain[i + 1]['name']
+                G.add_edge(f"{bname}_precond", f"{next_bname}_intention", color='red', style='dashed')
+
+            G.add_edge('behavior_selector', f"{bname}_elementary", color='blue')
+
+            interactor_type = level.get('interactor_type')
             if interactor_type:
-                method = level.get('continuous_method', '')
-                G.add_edge(bname, interactor_type, label=method, weight=2.0)
-                cos_val = log.get(f'{bname}_cos_activity', [0.0])[frame]
-                G.add_edge(interactor_type, f"{bname}_cos", label=f'CoS: {cos_val:.2f}', weight=2.0)
+                G.add_edge(f"{bname}_elementary", f"interactor_{interactor_type}", color='blue')
+                G.add_edge(f"interactor_{interactor_type}", 'behavior_selector', color='blue')
 
-        # Add interactor nodes and dynamic info
-        for name in interactor_types:
-            G.add_node(name, layer='interactor')
-            consumed = ', '.join(consumed_info.get(name, []))
-            G.nodes[name]['info'] = f"Consumes: {consumed}"
+        # === DRAW NODES WITH ACTIVITY COLORS ===
+        for node in G.nodes():
+            x, y = pos[node]
+            activity = G.nodes[node].get('activity', 0.0)
+            label = G.nodes[node].get('label', node)
 
-        # Collect interactor edges
-        interactor_edges = [(u, v) for u, v in G.edges if u in interactor_types and v in interactor_types]
+            if 'elementary' in node:
+                color = get_node_color(activity, threshold=0.5)
+                size = 2000
+                shape = 'box'
+            elif 'interactor' in node:
+                color = 'lightgray'
+                size = 2000
+                shape = 'box'
+            elif node == 'behavior_selector':
+                color = 'lightyellow'
+                size = 2000
+                shape = 'box'
+            else:
+                color = get_node_color(activity, threshold=0.1)
+                size = 800
+                shape = 'ellipse'
 
-        # Precondition → next intention
-        for i, level in enumerate(behavior_chain[:-1]):
-            next_level = behavior_chain[i+1]
-            G.add_edge(f"{level['name']}_precond", next_level['name'], weight=6.0)
+            if shape == 'box':
+                bbox = FancyBboxPatch((x - 0.8, y - 0.4), 1.6, 0.8,
+                                      boxstyle="round,pad=0.05",
+                                      edgecolor='black', facecolor=color, linewidth=2)
+                ax.add_patch(bbox)
+                if activity != 0.0:
+                    ax.text(x, y - 0.6, f'{activity:.2f}', ha='center', va='top',
+                            fontsize=7, style='italic', color='gray')
+            else:
+                circle = plt.Circle((x, y), 0.3, color=color, ec='black', linewidth=2)
+                ax.add_patch(circle)
+                if activity != 0.0:
+                    ax.text(x, y - 0.5, f'{activity:.2f}', ha='center', va='top',
+                            fontsize=7, style='italic', color='gray')
 
-        # Draw behavior nodes with activity coloring
-        behavior_nodes = [n for n in G.nodes if not n in interactor_types]
-        colors = ["green" if G.nodes[n].get("active") else "gray" for n in behavior_nodes]
-        nx.draw_networkx_nodes(G, pos, nodelist=behavior_nodes, node_color=colors, ax=ax)
-        nx.draw_networkx_labels(G, pos, labels={n: n for n in behavior_nodes}, ax=ax)
+            ax.text(x, y, label, ha='center', va='center', fontsize=10, weight='bold')
 
-        # Draw interactor nodes separately
-        nx.draw_networkx_nodes(G, pos, nodelist=interactor_types, node_color='lightblue', node_size=1500, ax=ax)
-        nx.draw_networkx_labels(G, pos, labels={n: n for n in interactor_types}, font_size=12, ax=ax)
+        # === DRAW EDGES ===
+        for u, v, data in G.edges(data=True):
+            x1, y1 = pos[u]
+            x2, y2 = pos[v]
+            color = data.get('color', 'black')
+            style = data.get('style', 'solid')
 
-        # Draw normal edges
-        normal_edges = [(u, v) for u, v in G.edges
-                        if (u, v) not in edges_to_curve_exc + edges_to_curve_inh + interactor_edges]
-        nx.draw_networkx_edges(G, pos, edgelist=normal_edges,
-                            width=[G[u][v].get("weight", 1)/2 for u, v in normal_edges],
-                            edge_color="green", ax=ax)
+            # Calculate direction vector
+            dx = x2 - x1
+            dy = y2 - y1
+            dist = np.sqrt(dx**2 + dy**2)
 
-        # Draw curved edges
-        nx.draw_networkx_edges(G, pos, edgelist=edges_to_curve_exc,
-                               width=3, connectionstyle="arc3,rad=0.3",
-                               edge_color="green", ax=ax)
-        nx.draw_networkx_edges(G, pos, edgelist=edges_to_curve_inh,
-                               width=3, connectionstyle="arc3,rad=0.3",
-                               edge_color="red", ax=ax)
-        # Draw edge labels
-        edge_labels = {(u, v): d['label'].replace('_continuous', '')
-               for u, v, d in G.edges(data=True) if d.get('label')}
-        nx.draw_networkx_edge_labels(G, pos, edge_labels=edge_labels,
-                                    font_color='darkred', font_size=10, ax=ax)
+            if dist == 0:
+                continue  # Avoid division by zero
 
-        nx.draw_networkx_edge_labels(G, pos, edge_labels=edge_labels, font_color='darkred', font_size=10, ax=ax)
+            dx_norm = dx / dist
+            dy_norm = dy / dist
 
-        # Annotate interactor info below nodes
-        for interactor in interactor_types:
-            x, y = pos[interactor]
-            ax.text(x, y-0.5, G.nodes[interactor].get('info', ''),
-                    ha='center', va='top', fontsize=10, color='gray')
+            # Determine node radii
+            # Circles have radius 0.3, boxes have radius based on corner distance
+            if 'elementary' in u or 'interactor' in u or u == 'behavior_selector':
+                radius_u = 0.9 # Approx half box width
+            else:
+                radius_u = 0.3
 
-        ax.set_title(f"Step {step}")
+            if 'elementary' in v or 'interactor' in v or v == 'behavior_selector':
+                radius_v = 0.9
+            else:
+                radius_v = 0.3
 
-    ani = animation.FuncAnimation(fig, update, frames=len(log['steps']), interval=100)
-    plt.show()
+            # Adjust start and end points
+            start_x = x1 + dx_norm * radius_u
+            start_y = y1 + dy_norm * radius_u
+            end_x = x2 - dx_norm * radius_u
+            end_y = y2 - dy_norm * radius_u
+
+            ax.annotate('', xy=(end_x, end_y), xytext=(start_x, start_y),
+                        arrowprops=dict(arrowstyle='->', color=color, lw=1.5, linestyle=style))
+
+        ax.set_xlim(-1, h_spacing * num_behaviors + 3)
+        ax.set_ylim(-2, y_system + 2)
+        ax.axis('off')
+        ax.set_title(f"Behavior Chain Architecture - Step {step} / {len(log['steps'])}",
+                     fontsize=16, weight='bold')
+
+    # Create animation
+    ani = animation.FuncAnimation(fig, update, frames=len(log['steps']), interval=200, repeat=True, blit=False)
+
+    # Show with explicit draw
+    plt.draw()
+    plt.pause(0.001)
+    plt.show(block=True)  # Block to keep window open
+
+    return ani

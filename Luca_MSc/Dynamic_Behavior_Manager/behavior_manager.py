@@ -516,7 +516,7 @@ if __name__ == "__main__":
     state2 = {}
     initial = True
 
-    for step in range(900):
+    for step in range(100):
         # Execute find behavior
         state = find_move.execute_step(interactors, external_input)
 
@@ -550,9 +550,9 @@ if __name__ == "__main__":
 
     # Plotting the activities of all nodes over time
     if not visualize:
-        plot_logs(log, step, find_move.behavior_chain)
+        #plot_logs(log, step, find_move.behavior_chain)
         #plot_logs(log2, i, find_move_2.behavior_chain)
-        #animate_fixed_chain(log, find_move.behavior_chain)
+        animate_fixed_chain(log, find_move.behavior_chain)
 
     # Create animation
     if visualize:
