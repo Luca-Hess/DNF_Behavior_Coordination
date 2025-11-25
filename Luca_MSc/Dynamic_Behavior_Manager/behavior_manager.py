@@ -165,7 +165,7 @@ class BehaviorManager():
         """Setup all neural field connections using behavior chain"""
         for i, level in enumerate(self.behavior_chain):
             # CoS to precondition (weight 6)
-            level['behavior'].CoS.connection_to(level['precondition'], -6.0)
+            level['behavior'].CoS.connection_to(level['precondition'], -10.0)
             
             # CoS to check (weight 5)
             level['behavior'].CoS.connection_to(level['check'].intention, 5.0)
@@ -173,7 +173,7 @@ class BehaviorManager():
             # Precondition to next intention (weight 6) - if there's a next level
             if level.get('has_next_precondition', False) and i + 1 < len(self.behavior_chain):
                 next_level = self.behavior_chain[i + 1]
-                level['precondition'].connection_to(next_level['behavior'].intention, -6.0)
+                level['precondition'].connection_to(next_level['behavior'].intention, -4.5)
 
         # System-level connections
         # System Intention activates all precondition nodes (which inhibit their respective behavior intentions until CoS is achieved)
@@ -477,7 +477,7 @@ if __name__ == "__main__":
     log = initalize_log(find_move.behavior_chain)
 
     # Create simulation visualizer
-    visualize = True
+    visualize = False
     if visualize:
         matplotlib.use('TkAgg')  # Use TkAgg backend which supports animation better
         visualizer = RobotSimulationVisualizer(behavior_chain=find_move.behavior_chain)
@@ -516,7 +516,7 @@ if __name__ == "__main__":
     state2 = {}
     initial = True
 
-    for step in range(1200):
+    for step in range(900):
         # Execute find behavior
         state = find_move.execute_step(interactors, external_input)
 
@@ -536,8 +536,8 @@ if __name__ == "__main__":
         # Store logs
         update_log(log, state, step, find_move.behavior_chain)
 
-        if state.get('system', {}).get('system_success', False):
-            break
+        # if state.get('system', {}).get('system_success', False):
+        #     break
         #     state2 = find_move_2.execute_step(interactors, external_input)
         #
         #     update_log(log2, state2, i, find_move_2.behavior_chain)
@@ -560,7 +560,7 @@ if __name__ == "__main__":
             visualizer.fig,  # Use visualizer's figure
             lambda i: visualizer.update(simulation_states[min(i, len(simulation_states) - 1)], interactors),
             frames=len(simulation_states),
-            interval=10,
+            interval=1,
             blit=True,
             repeat=True
         )

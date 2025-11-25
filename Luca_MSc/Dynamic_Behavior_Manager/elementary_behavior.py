@@ -45,7 +45,7 @@ class ElementaryBehavior(nn.Module):
         cos_to_intention_weight = -7.0  # Inhibitory - CoS inhibits intention when satisfied
                                         # because the behavior does not need to be active anymore
 
-        cos_to_inverter_weight = -4.0
+        cos_to_inverter_weight = -4.0   # Inhibitory - CoS inhibits its inverter when satisfied
 
         cof_to_all_weight = -7.0        # Inhibitory - CoF inhibits both intention and CoS when failure occurs
 
