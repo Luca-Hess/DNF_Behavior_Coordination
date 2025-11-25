@@ -294,7 +294,7 @@ def animate_fixed_chain(log, behavior_chain, clean=True):
     matplotlib.use('TkAgg')
 
     G = nx.DiGraph()
-    fig, ax = plt.subplots(figsize=(20, 12))
+    fig, ax = plt.subplots(figsize=(20, 12), dpi=70)
 
     pos = {}
 
@@ -341,6 +341,8 @@ def animate_fixed_chain(log, behavior_chain, clean=True):
         x_pos = 2 + i * (h_spacing * num_behaviors / max(len(interactor_types), 1))
         pos[f"interactor_{itype}"] = (x_pos, y_robot)
 
+    pos['world_state'] = (h_spacing * num_behaviors / 2, y_robot - 1.5)
+
     def get_node_color(activity_value, threshold=0.5):
         """Convert activity value to color gradient"""
         if activity_value > threshold:
@@ -367,7 +369,7 @@ def animate_fixed_chain(log, behavior_chain, clean=True):
         ax.add_patch(behavior_box)
         ax.text(0.5, y_behavior_top + 0.8, 'Behavior Layer', fontsize=14, color='green', weight='bold', zorder=0)
 
-        robot_box = FancyBboxPatch((0, y_robot - 0.8), h_spacing * num_behaviors + 2, 2,
+        robot_box = FancyBboxPatch((0, y_robot - 2.2), h_spacing * num_behaviors + 2, 3.5,
                                    boxstyle="round,pad=0.1", edgecolor='black',
                                    facecolor='lightgray', alpha=0.1, linewidth=2, zorder=0)
         ax.add_patch(robot_box)
@@ -409,6 +411,8 @@ def animate_fixed_chain(log, behavior_chain, clean=True):
             G.add_node(f"{bname}_check", activity=check_activity, label='Check')
 
         G.add_node('behavior_selector', activity=0.0, label='Behavior\nSelector')
+
+        G.add_node('world_state', activity=0.0, label='World State')
 
         for itype in interactor_types:
             G.add_node(f"interactor_{itype}", activity=interactor_activations[f"interactor_{itype}"],
@@ -461,6 +465,11 @@ def animate_fixed_chain(log, behavior_chain, clean=True):
         G.add_edge('system_cos', 'system_cof', color='red')
         G.add_edge('system_cof', 'system_cos', color='red')
 
+        # Robot layer edges
+        for interactor in interactor_types:
+            G.add_edge(f'interactor_{interactor}', 'world_state', color='blue')
+
+
         # System to Behavior layer edges
         if not clean:
             for level in behavior_chain:
@@ -511,7 +520,7 @@ def animate_fixed_chain(log, behavior_chain, clean=True):
                 if color == 'white':
                     color = 'lightgray'
                 shape = 'box'
-            elif node == 'behavior_selector':
+            elif node == 'behavior_selector' or node=='world_state':
                 color = 'lightyellow'
                 shape = 'box'
             elif node == 'external_input':

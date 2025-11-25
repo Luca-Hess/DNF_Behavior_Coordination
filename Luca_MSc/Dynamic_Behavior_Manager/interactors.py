@@ -46,7 +46,7 @@ class BaseInteractor:
             state_data['cos_value'] = cos_value
             state_data['cof_value'] = cof_value
             self.shared_states[requesting_behavior] = state_data
-            
+
             # Publish CoS for continuous calls
             self.publish_cos_state(requesting_behavior, cos_value)
             self.publish_cof_state(requesting_behavior, cof_value)
@@ -190,7 +190,6 @@ class MovementInteractor(BaseInteractor):
             print(f"MovementInteractor.move_to failure: {failure_reason}")
 
         state_data = {
-            'target_location': target_location,
             'arrived': arrived,
             'distance': self.calculate_distance(target_location),
             'position': position,
@@ -342,7 +341,6 @@ class GripperInteractor(BaseInteractor):
         distance = float(torch.norm(target_location - self.gripper_position)) if target_location is not None else float('inf')
 
         state_data = {
-            'target_location': target_location,
             'reachable': reachable,
             'distance': distance,
             'failure_reason': failure_reason
@@ -373,7 +371,6 @@ class GripperInteractor(BaseInteractor):
         cof_condition = (failure_reason is not None)
 
         state_data = {
-            'target_location': target_location,
             'at_target': at_target,
             'motor_command': motor_cmd,
             'failure_reason': failure_reason
@@ -438,9 +435,6 @@ class GripperInteractor(BaseInteractor):
         cof_condition = (failure_reason is not None)
 
         state_data = {
-            'target_name': target_name,
-            'target_location': target_location,
-            'target_orientation': target_orientation,
             'grabbed': grabbed,
             'at_target': self.gripper_is_at(target_location),
             'oriented': self.is_oriented(target_orientation),
@@ -737,18 +731,31 @@ class RobotInteractors:
     """Facade that provides access to all interactors."""
 
     def __init__(self):
+        self.shared_states = {}
+
+        self.base = BaseInteractor()
         self.movement = MovementInteractor()
         self.gripper = GripperInteractor(get_robot_position=self.movement.get_position)
         self.perception = PerceptionInteractor(get_robot_position=self.movement.get_position)
         self.state = StateInteractor(self.perception, self.movement, self.gripper)
 
+        # Point all interactors to the centralized shared state, allows cross-interactor state sharing
+        self.base.shared_states = self.shared_states
+        self.movement.shared_states = self.shared_states
+        self.gripper.shared_states = self.shared_states
+        self.perception.shared_states = self.shared_states
+        self.state.shared_states = self.shared_states
+
         # Allow interactors to reference back to this facade if needed
+        self.base._robot_interactors = self
         self.movement._robot_interactors = self
         self.gripper._robot_interactors = self
         self.perception._robot_interactors = self
 
     def reset(self):
         """Reset all interactors."""
+        self.base.reset()
         self.perception.reset()
         self.movement.reset()
         self.gripper.reset()
+        self.state.reset()
