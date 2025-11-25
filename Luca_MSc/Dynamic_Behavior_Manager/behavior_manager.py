@@ -304,7 +304,7 @@ class BehaviorManager():
         # Execute system-level dynamics
         system_intention_activation, system_intention_activity = self.system_intention()
         system_cos_activation, system_cos_activity = self.system_cos()
-        syste_cos_reporter_activation, system_cos_reporter_activity = self.system_cos_reporter()
+        system_cos_reporter_activation, system_cos_reporter_activity = self.system_cos_reporter()
         system_cof_activation, system_cof_activity = self.system_cof()
         
         # Determine system state
@@ -316,7 +316,7 @@ class BehaviorManager():
             'intention_activity': float(system_intention_activity.detach()),
             'cos_activation': float(system_cos_activation.detach()),
             'cos_activity': float(system_cos_activity.detach()),
-            'cos_reporter_activation': float(syste_cos_reporter_activation.detach()),
+            'cos_reporter_activation': float(system_cos_reporter_activation.detach()),
             'cos_reporter_activity': float(system_cos_reporter_activity.detach()),
             'cof_activation': float(system_cof_activation.detach()),
             'cof_activity': float(system_cof_activity.detach()),
@@ -516,7 +516,7 @@ if __name__ == "__main__":
     state2 = {}
     initial = True
 
-    for step in range(100):
+    for step in range(1200):
         # Execute find behavior
         state = find_move.execute_step(interactors, external_input)
 
@@ -536,8 +536,8 @@ if __name__ == "__main__":
         # Store logs
         update_log(log, state, step, find_move.behavior_chain)
 
-        # if state.get('system', {}).get('system_success', False):
-        #     break
+        if state.get('system', {}).get('system_success', False):
+            break
         #     state2 = find_move_2.execute_step(interactors, external_input)
         #
         #     update_log(log2, state2, i, find_move_2.behavior_chain)
