@@ -281,6 +281,7 @@ def plot_logs(log, steps, behavior_chain):
 import networkx as nx
 import matplotlib
 import matplotlib.pyplot as plt
+from matplotlib.lines import Line2D
 from matplotlib.patches import FancyBboxPatch, Ellipse
 import matplotlib.animation as animation
 
@@ -373,7 +374,7 @@ def animate_fixed_chain(log, behavior_chain, clean=True):
                                    boxstyle="round,pad=0.1", edgecolor='black',
                                    facecolor='lightgray', alpha=0.1, linewidth=2, zorder=0)
         ax.add_patch(robot_box)
-        ax.text(0.5, y_robot + 1, 'Robot Layer', fontsize=14, color='black', weight='bold', zorder=0)
+        ax.text(0.5, y_robot + 1.1, 'Robot Layer', fontsize=14, color='black', weight='bold', zorder=0)
 
         # === ADD NODES WITH ACTIVITY-BASED COLORS ===
         system_intention_activity = log['system_intention_activity'][frame]
@@ -467,7 +468,7 @@ def animate_fixed_chain(log, behavior_chain, clean=True):
 
         # Robot layer edges
         for interactor in interactor_types:
-            G.add_edge(f'interactor_{interactor}', 'world_state', color='blue')
+            G.add_edge(f'interactor_{interactor}', 'world_state', color='black')
 
 
         # System to Behavior layer edges
@@ -599,6 +600,30 @@ def animate_fixed_chain(log, behavior_chain, clean=True):
             ax.annotate('', xy=(end_x, end_y), xytext=(start_x, start_y),
                         arrowprops=dict(arrowstyle='->', color=color, lw=1.5, linestyle=style),
                         zorder=1)
+
+        # === LEGEND ===
+        legend_handles = [
+            Line2D([0], [0], color='green', lw=2),
+            Line2D([0], [0], color='red', lw=2),
+            Line2D([0], [0], color='blue', lw=2),
+            Line2D([0], [0], color='black', lw=2)
+        ]
+
+        legend_labels = [
+            'Green: Excitatory Connections',
+            'Red: Inhibitory Connections',
+            'Blue: Dynamic Connections (activity dependent)',
+            'Black: Static Connections'
+        ]
+
+        ax.legend(legend_handles,
+                  legend_labels,
+                  loc='upper right',
+                  bbox_to_anchor=(0.965,1.06),
+                  fontsize=9,
+                  framealpha=0.9
+                  )
+
 
         ax.set_xlim(-1, h_spacing * num_behaviors + 3)
         ax.set_ylim(-2, y_system + 2)
