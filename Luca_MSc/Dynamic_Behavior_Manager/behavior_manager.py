@@ -196,7 +196,7 @@ class BehaviorManager():
 
         # System CoS: Requires ALL behavior CoS nodes to be active (AND logic)
         # Achieved via inverted CoS connections to reporter, then reporter to system CoS
-        reporter_to_system_cos_weight = 4.0
+        reporter_to_system_cos_weight = 3.5
         self.system_cos_reporter.connection_to(self.system_cos, reporter_to_system_cos_weight)
 
         # Make System CoS and CoF mutually exclusive (high inhibitory weights)
@@ -360,7 +360,7 @@ class BehaviorManager():
         self.system_cof.clear_connections()        
 
         self.debug = False
-        self.success_actions_executed.clear()        
+        self.success_actions_executed.clear()
     
 
     def execute_step(self, interactors, external_input=6.0):
@@ -470,7 +470,9 @@ def run_behavior_manager(behaviors,
                          visualize_sim=False,
                          visualize_architecture=False,
                          visualize_logs=False,
-                         t):
+                         timing=False,
+                         verbose=False,
+                         perturbation_simulation=None):
 
     # Create behavior manager
     behavior_seq = BehaviorManager(
@@ -491,9 +493,18 @@ def run_behavior_manager(behaviors,
 
     behavior_seq.setup_subscriptions(interactors)
 
-    if debug:
+    if verbose:
         print("[INFO] Starting behavior execution.")
+
+    if timing:
+        start_time = time.time()
+
     for step in range(max_steps):
+
+        # Only used for benchmarking perturbations versus other approaches
+        if perturbation_simulation is not None:
+            perturbation_simulation(step, interactors)
+
         state = behavior_seq.execute_step(interactors, external_input)
 
         # Update logs for 3D sim
@@ -508,11 +519,16 @@ def run_behavior_manager(behaviors,
             update_log(log, state, step, behavior_seq.behavior_chain)
 
         if state.get('system', {}).get('system_success', False):
-            print(f"Behavior completed successfully in {step} steps.")
+            if verbose:
+                print(f"[INFO] Behavior sequence completed successfully in {step} steps.")
             break
         if state.get('system', {}).get('system_failure', False):
-            print(f"Behavior failed after {step} steps.")
+            if verbose:
+                print(f"[INFO] Behavior sequence failed after {step} steps.")
             break
+
+    if timing:
+        end_time = time.time()
 
     if visualize_sim:
         ani = FuncAnimation(
@@ -537,7 +553,21 @@ def run_behavior_manager(behaviors,
     if visualize_architecture:
         animate_fixed_chain(log, behavior_seq.behavior_chain)
 
-    return state
+    state['steps'] = step + 1
+    state['time'] = end_time - start_time if timing else None
+
+    result = {
+        'success': state['system']['system_success'],
+        'steps': state['steps'],
+        'time': state['time'],
+        'final_status': state['system']['system_status']
+    }
+
+    # Clean up subscriptions and reset behavior manager after execution
+    behavior_seq.clear_subscriptions(interactors)
+    behavior_seq.reset()
+
+    return state, result
 
 
 
@@ -570,7 +600,7 @@ if __name__ == "__main__":
                                            location=torch.tensor([8.0, 12.0, 1.5]),
                                            angle=torch.tensor([0.0, -1.0, 0.0]))
 
-    run_behavior_manager(behaviors=behaviors,
+    state, results = run_behavior_manager(behaviors=behaviors,
                          behavior_args=behavior_args,
                          interactors=interactors,
                          external_input=external_input,
@@ -578,6 +608,10 @@ if __name__ == "__main__":
                          debug=False,
                          visualize_sim=False,
                          visualize_logs=True,
-                         visualize_architecture=False)
+                         visualize_architecture=False,
+                         timing=True,
+                         verbose=False)
+
+    print(f"Behavior Manager Results: {results}")
 
 

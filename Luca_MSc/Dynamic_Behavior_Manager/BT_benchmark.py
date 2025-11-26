@@ -1,6 +1,9 @@
+import random
+
 import py_trees
 import torch
 import time
+from functools import partial
 from typing import Dict, Any
 from interactors import RobotInteractors
 from behavior_manager import run_behavior_manager
@@ -23,26 +26,19 @@ class FindObjectBT(BehaviorTreeNode):
         if not target:
             return py_trees.common.Status.FAILURE
 
-        # Check if object is already found
-        if target in self.interactors.perception.objects:
-            self.feedback_message = f"Object '{target}' found"
-            return py_trees.common.Status.SUCCESS
-
         # Simulate search (in real scenario, this would trigger camera scan)
         result = self.interactors.perception.find_object(target)
 
         if result[0]:
             return py_trees.common.Status.SUCCESS
+        elif result[1]:
+            return py_trees.common.Status.FAILURE
         else:
             return py_trees.common.Status.RUNNING
 
 
 class MoveToObjectBT(BehaviorTreeNode):
     """Move to target object location"""
-
-    def initialise(self):
-        self.started = False
-
     def update(self):
         target = self.behavior_args.get('target_object')
         if target not in self.interactors.perception.objects:
@@ -51,15 +47,12 @@ class MoveToObjectBT(BehaviorTreeNode):
         target_pos = self.interactors.perception.objects[target]['location']
         current_pos = self.interactors.movement.get_position()
 
-        # Start movement if not started
-        if not self.started:
-            self.interactors.movement.move_to_position(target_pos, requesting_behavior=self.name)
-            self.started = True
+        self.interactors.movement.move_to(target_pos, requesting_behavior=self.name)
 
-        # Check if reached
-        distance = torch.norm(target_pos - current_pos).item()
+        # Check if reached (in plane
+        distance = torch.norm(target_pos[:2] - current_pos[:2]).item()
 
-        if distance < 0.5:
+        if distance < 0.1:
             return py_trees.common.Status.SUCCESS
         else:
             return py_trees.common.Status.RUNNING
@@ -74,11 +67,11 @@ class CheckReachBT(BehaviorTreeNode):
             return py_trees.common.Status.FAILURE
 
         target_pos = self.interactors.perception.objects[target]['location']
-        result = self.interactors.gripper.check_reachability(target_pos, requesting_behavior=self.name)
+        result = self.interactors.gripper.reach_check(target_pos, requesting_behavior=self.name)
 
-        if result[0] and result[1]:  # Success and reachable
+        if result[0]:  # Reachable
             return py_trees.common.Status.SUCCESS
-        elif result[0] and not result[1]:  # Success but not reachable
+        elif result[1]:  # Never reachable (height of object larger than max reach)
             return py_trees.common.Status.FAILURE
         else:
             return py_trees.common.Status.RUNNING
@@ -87,9 +80,6 @@ class CheckReachBT(BehaviorTreeNode):
 class ReachForObjectBT(BehaviorTreeNode):
     """Reach for target object"""
 
-    def initialise(self):
-        self.started = False
-
     def update(self):
         target = self.behavior_args.get('target_object')
         if target not in self.interactors.perception.objects:
@@ -97,15 +87,13 @@ class ReachForObjectBT(BehaviorTreeNode):
 
         target_pos = self.interactors.perception.objects[target]['location']
 
-        if not self.started:
-            self.interactors.gripper.reach_to_position(target_pos, requesting_behavior=self.name)
-            self.started = True
+        self.interactors.gripper.reach_for(target_pos, requesting_behavior=self.name)
 
         # Check if reached
         gripper_pos = self.interactors.gripper.get_position()
         distance = torch.norm(target_pos - gripper_pos).item()
 
-        if distance < 0.1:
+        if distance < 0.01:
             return py_trees.common.Status.SUCCESS
         else:
             return py_trees.common.Status.RUNNING
@@ -127,11 +115,16 @@ class GrabObjectBT(BehaviorTreeNode):
         if self.phase == 'grab':
             # Grab object
             target_pos = self.interactors.perception.objects[target]['location']
-            result = self.interactors.gripper.grab_object(target, requesting_behavior=self.name)
+            target_orientation = self.interactors.perception.objects[target]['angle']
+            result = self.interactors.gripper.grab(target, target_pos, target_orientation, requesting_behavior=self.name)
 
             if result[0]:
                 self.phase = 'transport'
-            return py_trees.common.Status.RUNNING
+                return py_trees.common.Status.RUNNING
+            elif result[1]:
+                return py_trees.common.Status.FAILURE
+            else:
+                return py_trees.common.Status.RUNNING
 
         elif self.phase == 'transport':
             # Transport to drop-off location
@@ -139,17 +132,17 @@ class GrabObjectBT(BehaviorTreeNode):
                 return py_trees.common.Status.FAILURE
 
             drop_pos = self.interactors.perception.objects[drop_off]['location']
-            current_pos = self.interactors.gripper.get_position()
+            current_pos = self.interactors.movement.get_position()
 
-            self.interactors.gripper.reach_to_position(drop_pos, requesting_behavior=self.name)
+            self.interactors.movement.move_to(drop_pos, requesting_behavior=self.name)
 
-            distance = torch.norm(drop_pos - current_pos).item()
+            # Check if reached (in plane
+            distance = torch.norm(drop_pos[:2] - current_pos[:2]).item()
+
             if distance < 0.1:
-                # Release object
-                self.interactors.gripper.release_object(requesting_behavior=self.name)
                 return py_trees.common.Status.SUCCESS
-
-            return py_trees.common.Status.RUNNING
+            else:
+                return py_trees.common.Status.RUNNING
 
         return py_trees.common.Status.FAILURE
 
@@ -181,7 +174,7 @@ class BehaviorTreeComparison:
 
         self.tree = py_trees.trees.BehaviourTree(root=sequence)
 
-    def execute(self, max_steps: int = 2000, external_perturbation=None):
+    def execute(self, max_steps: int = 4000, external_perturbation=None):
         """Execute the behavior tree
 
         Args:
@@ -200,6 +193,7 @@ class BehaviorTreeComparison:
 
             # Tick the tree
             self.tree.tick()
+            time.sleep(0.005) # Simulate DNF 5ms system time per step
 
             # Check completion
             if self.tree.root.status == py_trees.common.Status.SUCCESS:
@@ -235,86 +229,109 @@ class BehaviorTreeComparison:
 
 
 # Benchmark functions
-def benchmark_completion_speed(bt_system: BehaviorTreeComparison, dnf_system,
-                               num_runs: int = 10) -> Dict[str, Any]:
+def benchmark_completion_speed(num_runs: int = 10) -> Dict[str, Any]:
     """Compare completion speed between BT and DNF systems"""
 
     bt_times = []
     bt_steps = []
+    bt_success = 0
     dnf_times = []
     dnf_steps = []
+    dnf_success = 0
 
     print(f"\n=== Completion Speed Benchmark ({num_runs} runs) ===")
 
+    behavior_args = {
+        'target_object': 'cup',
+        'drop_off_target': 'transport_target'
+    }
+
     for run in range(num_runs):
+
         print(f"\nRun {run + 1}/{num_runs}")
 
         # Test Behavior Tree
-        bt_system.reset()
-        bt_system.interactors.reset()
+        bt_interactors = RobotInteractors()
+        # Reset object locations
+        bt_interactors.perception.register_object(
+            name="cup",
+            location=torch.tensor([5.2, 10.5, 1.8]),
+            angle=torch.tensor([0.0, -1.0, 0.0])
+        )
+        bt_interactors.perception.register_object(
+            name="transport_target",
+            location=torch.tensor([5.0, 0.0, 1.0]),
+            angle=torch.tensor([0.0, 0.0, 0.0])
+        )
+
+        bt_system = BehaviorTreeComparison(bt_interactors, behavior_args)
+
         bt_result = bt_system.execute()
         bt_times.append(bt_result['time'])
         bt_steps.append(bt_result['steps'])
-        print(f"  BT: {bt_result['steps']} steps, {bt_result['time']:.3f}s")
+        if bt_result['success']:
+            bt_success += 1
+        print(f"  BT: {bt_result['steps']} steps, "
+              f"{bt_result['time']:.3f}s, "
+              f"{'Succeeded' if bt_result['success'] else 'Failed'}")
+
+
 
         # Test DNF System
-        dnf_system.reset()
-        dnf_system.interactors.reset()
+        dnf_interactors = RobotInteractors()
+        # Reset object locations
+        dnf_interactors.perception.register_object(
+            name="cup",
+            location=torch.tensor([5.2, 10.5, 1.8]),
+            angle=torch.tensor([0.0, -1.0, 0.0])
+        )
+        dnf_interactors.perception.register_object(
+            name="transport_target",
+            location=torch.tensor([5.0, 0.0, 1.0]),
+            angle=torch.tensor([0.0, 0.0, 0.0])
+        )
 
         behaviors = ['find', 'move', 'check_reach', 'reach_for', 'grab_transport']
-        behavior_args = {
-            'target_object': 'cup',
-            'drop_off_target': 'transport_target'
-        }
 
-        # External input activates find_grab behavior sequence
-        external_input = 6.0
-
-        # Create interactors with a test object
-        interactors = RobotInteractors()
-        interactors.perception.register_object(name="cup",
-                                               location=torch.tensor([5.2, 10.5, 1.8]),
-                                               angle=torch.tensor([0.0, -1.0, 0.0]))
-
-        # Define drop-off location for transport
-        # Important: As a matter of definition, this is considered to be "given" and thus registered from the start
-        # in a scenario that involves transporting an object to a specific location provided by the user (similar to the way the target object is given).
-        # An alternative scenario could be to have a behavior subsequent to "grab" that actively queries the user for a drop-off location.
-        interactors.perception.register_object(name="transport_target",
-                                               location=torch.tensor([5.0, 0.0, 1.0]),
-                                               angle=torch.tensor([0.0, 0.0, 0.0]))
-
-        interactors.perception.register_object(name="bottle",
-                                               location=torch.tensor([8.0, 12.0, 1.5]),
-                                               angle=torch.tensor([0.0, -1.0, 0.0]))
-
-        run_behavior_manager(behaviors=behaviors,
+        dnf_states, dnf_result = run_behavior_manager(behaviors=behaviors,
                              behavior_args=behavior_args,
-                             interactors=interactors,
-                             external_input=external_input,
+                             interactors=dnf_interactors,
+                             external_input=6.0,
                              max_steps=2000,
                              debug=False,
                              visualize_sim=False,
                              visualize_logs=True,
-                             visualize_architecture=False)
+                             visualize_architecture=False,
+                             timing=True,
+                             verbose=False)
 
         dnf_times.append(dnf_result['time'])
         dnf_steps.append(dnf_result['steps'])
+        if dnf_result['success']:
+            dnf_success += 1
 
-        print(f"  BT: {dnf_result['steps']} steps, {dnf_result['time']:.3f}s")
+        print(f"  DNF: {dnf_result['steps']} steps, "
+              f"{dnf_result['time']:.3f}s, "
+              f"{'Succeeded' if dnf_result['success'] else 'Failed'}")
 
     return {
         'bt_avg_time': sum(bt_times) / len(bt_times),
         'bt_avg_steps': sum(bt_steps) / len(bt_steps),
         'bt_times': bt_times,
         'bt_steps': bt_steps,
-        # Add DNF metrics
+        'bt_success': bt_success,
+        'dnf_avg_time': sum(dnf_times) / len(dnf_times),
+        'dnf_avg_steps': sum(dnf_steps) / len(dnf_steps),
+        'dnf_times': dnf_times,
+        'dnf_steps': dnf_steps,
+        'dnf_success': dnf_success
     }
 
 
-def benchmark_robustness(bt_system: BehaviorTreeComparison, dnf_system,
-                         perturbation_types: list, num_runs: int = 5) -> Dict[str, Any]:
+def benchmark_robustness(perturbation_types: list, num_runs: int = 5) -> Dict[str, Any]:
     """Compare robustness to perturbations"""
+
+    random.seed(42)  # For reproducibility
 
     results = {}
 
@@ -324,77 +341,117 @@ def benchmark_robustness(bt_system: BehaviorTreeComparison, dnf_system,
         print(f"\nTesting perturbation: {perturbation_name}")
 
         bt_successes = 0
+        dnf_successes = 0
 
         for run in range(num_runs):
+
+            # Determine random trigger step for perturbation and pass it to the function
+            trigger_step = random.randint(200, 1900)
+
+            perturbation_with_trigger = partial(perturbation_func, trigger_step=trigger_step)
+
+            print(f"  Run {run + 1}: Perturbation will trigger at step {trigger_step}")
+
             # Test BT
-            bt_system.reset()
-            bt_system.interactors.reset()
-            bt_result = bt_system.execute(external_perturbation=perturbation_func)
+            # Reset object locations
+            bt_interactors = RobotInteractors()  # Create new instance
+            bt_interactors.perception.register_object(
+                name="cup",
+                location=torch.tensor([5.2, 10.5, 1.8]),
+                angle=torch.tensor([0.0, -1.0, 0.0])
+            )
+            bt_interactors.perception.register_object(
+                name="transport_target",
+                location=torch.tensor([5.0, 0.0, 1.0]),
+                angle=torch.tensor([0.0, 0.0, 0.0])
+            )
+
+            # Create new BT system with isolated interactors
+            behavior_args = {
+                'target_object': 'cup',
+                'drop_off_target': 'transport_target'
+            }
+            bt_test_system = BehaviorTreeComparison(bt_interactors, behavior_args)
+
+            bt_result = bt_test_system.execute(external_perturbation=perturbation_with_trigger)
 
             if bt_result['success']:
                 bt_successes += 1
 
             print(f"  Run {run + 1}: BT {bt_result['final_status']}")
 
+            # Test DNF
+            dnf_interactors = RobotInteractors()  # Create separate instance
+            dnf_interactors.perception.register_object(
+                name="cup",
+                location=torch.tensor([5.2, 10.5, 1.8]),
+                angle=torch.tensor([0.0, -1.0, 0.0])
+            )
+            dnf_interactors.perception.register_object(
+                name="transport_target",
+                location=torch.tensor([5.0, 0.0, 1.0]),
+                angle=torch.tensor([0.0, 0.0, 0.0])
+            )
+
+            behaviors = ['find', 'move', 'check_reach', 'reach_for', 'grab_transport']
+            behavior_args = {
+                'target_object': 'cup',
+                'drop_off_target': 'transport_target'
+            }
+
+            _, dnf_results = run_behavior_manager(
+                behaviors=behaviors,
+                behavior_args=behavior_args,
+                interactors=dnf_interactors,  # Use isolated interactors
+                external_input=6.0,
+                max_steps=4000,
+                debug=False,
+                visualize_sim=False,
+                visualize_logs=False,
+                visualize_architecture=False,
+                timing=True,
+                perturbation_simulation=perturbation_with_trigger
+            )
+
+            if dnf_results['success']:
+                dnf_successes += 1
+
+            print(f"  Run {run + 1}: DNF {dnf_results['final_status']}")
+
         results[perturbation_name] = {
             'bt_success_rate': bt_successes / num_runs,
-            # Add DNF metrics
+            'dnf_success_rate': dnf_successes / num_runs
         }
 
     return results
 
 
 # Example perturbation functions
-def object_displacement_perturbation(step, interactors):
+def object_displacement_perturbation(step, interactors, trigger_step):
     """Move target object at step 100"""
-    if step == 100:
+    if step == trigger_step:
         target = interactors.perception.objects.get('cup')
+        old_location = target['location'].clone() if target else None
         if target:
             target['location'] += torch.tensor([2.0, 2.0, 0.0])
-            print(f"[PERTURBATION] Moved object to {target['location']}")
+            print(f"[PERTURBATION] Moved object from {old_location} to {target['location']}")
 
 
-def sensor_noise_perturbation(step, interactors):
+def sensor_noise_perturbation(step, interactors, trigger_step):
     """Add random noise to perception"""
-    if step % 50 == 0:
+    if trigger_step % 50 == 0:
         for obj_name, obj_data in interactors.perception.objects.items():
             noise = torch.randn(3) * 0.5
             obj_data['location'] += noise
 
 
 if __name__ == "__main__":
-    # Setup
-    interactors = RobotInteractors()
-    interactors.perception.register_object(
-        name="cup",
-        location=torch.tensor([5.2, 10.5, 1.8]),
-        angle=torch.tensor([0.0, -1.0, 0.0])
-    )
-    interactors.perception.register_object(
-        name="transport_target",
-        location=torch.tensor([5.0, 0.0, 1.0]),
-        angle=torch.tensor([0.0, 0.0, 0.0])
-    )
-
-    behavior_args = {
-        'target_object': 'cup',
-        'drop_off_target': 'transport_target'
-    }
-
-    # Create BT system
-    bt_system = BehaviorTreeComparison(interactors, behavior_args)
-
-    # Run single test
-    print("Running behavior tree system...")
-    result = bt_system.execute()
-    print(f"\nResult: {result}")
-
     # Run benchmarks
-    # perturbations = [
-    #     ("Object Displacement", object_displacement_perturbation),
-    #     ("Sensor Noise", sensor_noise_perturbation)
-    # ]
+    perturbations = [
+        ("Object Displacement", object_displacement_perturbation),
+        ("Sensor Noise", sensor_noise_perturbation),
+    ]
 
     # Uncomment when DNF system interface is ready
-    speed_results = benchmark_completion_speed(bt_system, dnf_system, num_runs=10)
-    # robustness_results = benchmark_robustness(bt_system, dnf_system, perturbations, num_runs=5)
+    speed_results = benchmark_completion_speed(num_runs=10)
+    robustness_results = benchmark_robustness(perturbations, num_runs=5)

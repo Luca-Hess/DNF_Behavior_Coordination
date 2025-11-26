@@ -60,6 +60,8 @@ class BaseInteractor:
         self.cos_subscribers.clear()
         self.cof_subscribers.clear()
 
+        self.params.clear()
+
 class PerceptionInteractor(BaseInteractor):
     def __init__(self, get_robot_position=None, **kwargs):
         super().__init__(**kwargs)
@@ -74,7 +76,6 @@ class PerceptionInteractor(BaseInteractor):
         self.max_tracking_loss_duration = 5   # Max steps to lose tracking
         self.in_tracking_loss = False
         self.tracking_loss_remaining = 0
-        self.max_search_attempts = kwargs.get('max_search_attempts', 50) # Max attempts before reporting failure
 
     def find_object(self, name, requesting_behavior=None):
         """Unified find object method - behaves differently based on requesting_behavior"""
@@ -101,9 +102,9 @@ class PerceptionInteractor(BaseInteractor):
         """Internal object finding logic"""
         self.search_attempts += 1
 
-        # Check for search timeout failure
-        if self.search_attempts > self.max_search_attempts:
-            failure_reason = f"Search timeout: {name} not found after {self.max_search_attempts} attempts"
+        # Target does not exist in the environment
+        if name not in self.objects:
+            failure_reason = f"Search timeout: {name} not found in environment."
             return False, None, None, failure_reason
 
         # Check if we should start a tracking loss period
@@ -134,8 +135,12 @@ class PerceptionInteractor(BaseInteractor):
     def reset(self):
         """Reset perception state."""
         super().reset()
-        self.target_states = {}
-    
+        self.target_states.clear()
+        self.objects.clear()
+        self.search_attempts = 0
+        self.tracking_loss_remaining = 0
+
+
 
 class MovementInteractor(BaseInteractor):
     """Handles robot position, movement, and spatial calculations."""
@@ -268,6 +273,10 @@ class MovementInteractor(BaseInteractor):
         """Reset movement state."""
         self.robot_position = torch.tensor([0.0, 0.0, 0.0])
 
+        self.move_attempts = 0
+
+
+
 class GripperInteractor(BaseInteractor):
     """Handles gripper position and movement."""
 
@@ -357,7 +366,7 @@ class GripperInteractor(BaseInteractor):
 
         # For continous calls, actually move the gripper
         if requesting_behavior:
-            if not self.gripper_can_reach(target_location):
+            if not self.gripper_can_reach(target_location) and target_location[2] > self.max_reach:
                 failure_reason = f"Target location {target_location} is out of gripper reach (max {self.max_reach})."
             else:
                 motor_cmd = self.gripper_move_towards(target_location)
@@ -430,6 +439,10 @@ class GripperInteractor(BaseInteractor):
 
             if at_target and oriented and not self.gripper_is_open:
                 grabbed = self.has_object(gripper_position=self.get_position(), object_position= self.grabbed_objects[target_name])
+
+            # Reset flag to allow re-approach if sanity check fails
+            if not grabbed:
+                self.initial_approach = True
 
         # Determine CoS & CoF condition
         cos_condition = grabbed
@@ -620,6 +633,8 @@ class GripperInteractor(BaseInteractor):
         self.grabbed_objects.clear()
         self.initial_approach = True
         self._has_object = False
+
+        self.wait_counter = 0  # for simulating object grasp delay
 
 
 class StateInteractor(BaseInteractor):
