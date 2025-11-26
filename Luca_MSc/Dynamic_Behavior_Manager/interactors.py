@@ -100,7 +100,6 @@ class PerceptionInteractor(BaseInteractor):
     def _find_object_internal(self, name):
         """Internal object finding logic"""
         self.search_attempts += 1
-        failure_reason = None
 
         # Check for search timeout failure
         if self.search_attempts > self.max_search_attempts:
@@ -143,7 +142,7 @@ class MovementInteractor(BaseInteractor):
 
     def __init__(
             self,
-            max_speed = 0.1,        # max speed per step
+            max_speed = 0.02,        # max speed per step
             gain = 1.0,
             stop_threshold = 0.1,   # distance to consider "arrived"
             **kwargs
@@ -274,7 +273,7 @@ class GripperInteractor(BaseInteractor):
 
     def __init__(
             self,
-            max_speed = 0.1,            # max speed per step
+            max_speed = 0.01,            # max speed per step
             gain = 1.0,
             stop_threshold = 0.01,      # distance to consider "arrived"
             orient_threshold = 0.01,    # radians to consider "oriented"
@@ -411,9 +410,11 @@ class GripperInteractor(BaseInteractor):
                 # Once at target, close gripper
                 elif self.gripper_is_open:
                     self.close_gripper()
-        
-                # Finally, check if object is held
-                grabbed = self.has_object(gripper_position=self.get_position(), object_position=target_location)
+
+                if self.is_oriented(target_orientation) and self.gripper_is_at(target_location) and not self.gripper_is_open:
+
+                    # Finally, check if object is held
+                    grabbed = self.has_object(gripper_position=self.get_position(), object_position=target_location)
 
                 if grabbed:
                     grab_offset = target_location - self.gripper_position

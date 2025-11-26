@@ -24,7 +24,7 @@ from helper_functions import initalize_log, update_log, plot_logs, animate_fixed
 
 import behavior_config
 
-#import rclpy
+import time
 
 class BehaviorManager():
     def __init__(self, behaviors=list, args=dict(), debug=False):
@@ -185,7 +185,7 @@ class BehaviorManager():
 
         # System CoS Reporter: Inverted CoS from all behaviors (AND logic)
         # Any activity in CoS inverters will inhibit reporter
-        cos_inverter_to_reporter_weight = -4.0
+        cos_inverter_to_reporter_weight = -4
         for level in self.behavior_chain:
             level['behavior'].CoS_inverter.connection_to(self.system_cos_reporter, cos_inverter_to_reporter_weight)
         
@@ -196,7 +196,7 @@ class BehaviorManager():
 
         # System CoS: Requires ALL behavior CoS nodes to be active (AND logic)
         # Achieved via inverted CoS connections to reporter, then reporter to system CoS
-        reporter_to_system_cos_weight = 6.0
+        reporter_to_system_cos_weight = 4.0
         self.system_cos_reporter.connection_to(self.system_cos, reporter_to_system_cos_weight)
 
         # Make System CoS and CoF mutually exclusive (high inhibitory weights)
@@ -460,29 +460,94 @@ class BehaviorManager():
         states['system'] = self.process_system_level_nodes()
 
         return states
-        
+
+def run_behavior_manager(behaviors,
+                         behavior_args,
+                         interactors,
+                         external_input,
+                         max_steps=2000,
+                         debug=False,
+                         visualize_sim=False,
+                         visualize_architecture=False,
+                         visualize_logs=False,
+                         t):
+
+    # Create behavior manager
+    behavior_seq = BehaviorManager(
+        behaviors=behaviors,
+        args=behavior_args,
+        debug=debug
+    )
+
+    # Log all activations and activities for plotting
+    if visualize_logs or visualize_architecture:
+        log = initalize_log(behavior_seq.behavior_chain)
+
+    # Simulation visualizer
+    if visualize_sim:
+        matplotlib.use('TkAgg')  # Use TkAgg backend which supports animation better
+        visualizer = RobotSimulationVisualizer(behavior_chain=behavior_seq.behavior_chain)
+        simulation_states = []
+
+    behavior_seq.setup_subscriptions(interactors)
+
+    if debug:
+        print("[INFO] Starting behavior execution.")
+    for step in range(max_steps):
+        state = behavior_seq.execute_step(interactors, external_input)
+
+        # Update logs for 3D sim
+        if visualize_sim:
+            state.update({'target_position': interactors.perception.objects['cup']['location']})
+            state.update({'robot_pos': interactors.movement.get_position()})
+            state.update({'gripper_pos': interactors.gripper.get_position()})
+            simulation_states.append(state)
+
+        # Store logs
+        if visualize_logs or visualize_architecture:
+            update_log(log, state, step, behavior_seq.behavior_chain)
+
+        if state.get('system', {}).get('system_success', False):
+            print(f"Behavior completed successfully in {step} steps.")
+            break
+        if state.get('system', {}).get('system_failure', False):
+            print(f"Behavior failed after {step} steps.")
+            break
+
+    if visualize_sim:
+        ani = FuncAnimation(
+            visualizer.fig,  # Use visualizer's figure
+            lambda i: visualizer.update(simulation_states[min(i, len(simulation_states) - 1)], interactors),
+            frames=len(simulation_states),
+            interval=1,
+            blit=True,
+            repeat=True
+        )
+
+        # Use this instead of plt.ion() and plt.show(block=True)
+        plt.rcParams['animation.html'] = 'html5'  # For better compatibility
+        manager = plt.get_current_fig_manager()
+        if hasattr(manager, 'window'):
+            manager.window.state('normal')  # Ensure window is not minimized
+        plt.show()
+
+    if visualize_logs:
+        plot_logs(log, step, behavior_seq.behavior_chain)
+
+    if visualize_architecture:
+        animate_fixed_chain(log, behavior_seq.behavior_chain)
+
+    return state
+
+
 
 # Example usage
 if __name__ == "__main__":
-
-    find_move = BehaviorManager(
-        behaviors=['find', 'move', 'check_reach', 'reach_for', 'grab_transport'],
-        args={ 
-            'target_object': 'cup',
-            'drop_off_target': 'transport_target'
-        }, debug=False)
-
-
-    # Log all activations and activities for plotting
-    log = initalize_log(find_move.behavior_chain)
-
-    # Create simulation visualizer
-    visualize = False
-    if visualize:
-        matplotlib.use('TkAgg')  # Use TkAgg backend which supports animation better
-        visualizer = RobotSimulationVisualizer(behavior_chain=find_move.behavior_chain)
-        simulation_states = []
-
+    behaviors = ['find', 'move', 'check_reach', 'reach_for', 'grab_transport']
+    behavior_args = {
+        'target_object': 'cup',
+        'drop_off_target': 'transport_target'
+    }
 
     # External input activates find_grab behavior sequence
     external_input = 6.0
@@ -505,69 +570,14 @@ if __name__ == "__main__":
                                            location=torch.tensor([8.0, 12.0, 1.5]),
                                            angle=torch.tensor([0.0, -1.0, 0.0]))
 
-    # Create the find-grab behavior
-    find_move.setup_subscriptions(interactors)
+    run_behavior_manager(behaviors=behaviors,
+                         behavior_args=behavior_args,
+                         interactors=interactors,
+                         external_input=external_input,
+                         max_steps=2000,
+                         debug=False,
+                         visualize_sim=False,
+                         visualize_logs=True,
+                         visualize_architecture=False)
 
-    # Run the find behavior until completion
-    print("Starting find behavior for 'cup'...")
-    i = 0
 
-    state = {}
-    state2 = {}
-    initial = True
-
-    for step in range(1200):
-        # Execute find behavior
-        state = find_move.execute_step(interactors, external_input)
-
-        # if state.get('system', {}).get('system_success', False) and initial:
-        #     initial = False
-        #     find_move.reset()
-        #     find_move.clear_subscriptions(interactors)
-        #     find_move_2.setup_subscriptions(interactors)
-
-        # Update the visualizer
-        if visualize:
-            state.update({'target_position': interactors.perception.objects['cup']['location']})
-            state.update({'robot_pos': interactors.movement.get_position()})
-            state.update({'gripper_pos': interactors.gripper.get_position()})
-            simulation_states.append(state)
-
-        # Store logs
-        update_log(log, state, step, find_move.behavior_chain)
-
-        if state.get('system', {}).get('system_success', False):
-            break
-        #     state2 = find_move_2.execute_step(interactors, external_input)
-        #
-        #     update_log(log2, state2, i, find_move_2.behavior_chain)
-        #
-        #     i += 1
-    
-    print('Final Position:', interactors.movement.get_position())
-    print('Gripper Position:', interactors.gripper.get_position())
-    print('Object Position:', interactors.perception.objects['cup']['location'])
-
-    # Plotting the activities of all nodes over time
-    if not visualize:
-        plot_logs(log, step, find_move.behavior_chain)
-        #plot_logs(log2, i, find_move_2.behavior_chain)
-        animate_fixed_chain(log, find_move.behavior_chain)
-
-    # Create animation
-    if visualize:
-        ani = FuncAnimation(
-            visualizer.fig,  # Use visualizer's figure
-            lambda i: visualizer.update(simulation_states[min(i, len(simulation_states) - 1)], interactors),
-            frames=len(simulation_states),
-            interval=1,
-            blit=True,
-            repeat=True
-        )
-
-        # Use this instead of plt.ion() and plt.show(block=True)
-        plt.rcParams['animation.html'] = 'html5'  # For better compatibility
-        manager = plt.get_current_fig_manager()
-        if hasattr(manager, 'window'):
-            manager.window.state('normal')  # Ensure window is not minimized
-        plt.show()

@@ -6,6 +6,7 @@ requires-python = ">=3.11"
 dependencies = [
     "matplotlib==3.10.1",
     "numpy==1.26.4",
+    "py-trees>=2.4.0",
     "pygame==2.6.1",
     "pygame-ce==2.5.5",
     "pygame-gui==0.6.5",

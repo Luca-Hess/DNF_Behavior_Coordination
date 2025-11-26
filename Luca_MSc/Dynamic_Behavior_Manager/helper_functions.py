@@ -460,6 +460,19 @@ def animate_fixed_chain(log, behavior_chain, clean=True):
             ax.annotate('', xy=pos['system_cof'], xytext=(x_center + 5.5, y_summary),
                         arrowprops=dict(arrowstyle='->', color='green', lw=2), zorder=1)
 
+            # Add also Summary Box in Robot Layer
+            x_leftbound = 1.2
+            y_robot_summary = y_robot - 1.8
+
+            box_robot_summary = FancyBboxPatch((x_leftbound, y_robot_summary), 3.5, 0.5,
+                                        boxstyle="round,pad=0.2", edgecolor='black',
+                                        facecolor='white', linewidth=2, zorder=2)
+            ax.add_patch(box_robot_summary)
+            ax.text(x_leftbound+1.75, y_robot_summary+0.25, "From all Interactors to respective\n"
+                                                           "behavior CoS and CoF nodes",
+                    ha='center', va='center', fontsize=10, zorder=3)
+
+
         # === ADD EDGES ===
         # System layer edges
         G.add_edge('external_input', 'system_intention', color='green')
