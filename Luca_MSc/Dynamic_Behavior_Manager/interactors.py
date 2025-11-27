@@ -104,7 +104,7 @@ class PerceptionInteractor(BaseInteractor):
 
         # Target does not exist in the environment
         if name not in self.objects:
-            failure_reason = f"Search timeout: {name} not found in environment."
+            failure_reason = f"Inexistent: {name} not found in environment."
             return False, None, None, failure_reason
 
         # Check if we should start a tracking loss period
@@ -332,7 +332,7 @@ class GripperInteractor(BaseInteractor):
 
         return distance <= self.max_reach
             
-    def reach_check(self, target_location, requesting_behavior=None):
+    def reach_check(self, target_name, target_location, target_orientation, requesting_behavior=None):
         """Continuous publisher for active behaviors"""
 
         position = self.get_position()
@@ -340,13 +340,20 @@ class GripperInteractor(BaseInteractor):
 
         # Determine failure condition
         failure_reason = None
-        if not reachable and target_location[2] > self.max_reach:
-            failure_reason = f"Target location {target_location} is higher than the gripper can reach (max {self.max_reach})."
+        if not reachable and target_location is not None:
+            if target_location[2] > self.max_reach:
+                failure_reason = f"Target location {target_location} is higher than the gripper can reach (max {self.max_reach})."
+
+        distance = float(torch.norm(target_location - self.gripper_position)) if target_location is not None else float('inf')
+
+        if not requesting_behavior:
+            if self.is_target_grabbed(target_name):
+                reachable = True
+                distance = 0.0
+                failure_reason = None
 
         cos_condition = reachable
         cof_condition = (failure_reason is not None)
-
-        distance = float(torch.norm(target_location - self.gripper_position)) if target_location is not None else float('inf')
 
         state_data = {
             'reachable': reachable,
@@ -358,14 +365,13 @@ class GripperInteractor(BaseInteractor):
 
         return cos_condition, cof_condition, position
 
-
-    def reach_for(self, target_location, requesting_behavior=None):   
+    def reach_for(self, target_name, target_location, target_orientation, requesting_behavior=None):
         """Continuous publisher for active behaviors"""
         motor_cmd = None
         failure_reason = None
 
         # For continous calls, actually move the gripper
-        if requesting_behavior:
+        if requesting_behavior and target_location is not None:
             if not self.gripper_can_reach(target_location) and target_location[2] > self.max_reach:
                 failure_reason = f"Target location {target_location} is out of gripper reach (max {self.max_reach})."
             else:
@@ -373,6 +379,11 @@ class GripperInteractor(BaseInteractor):
 
         at_target = self.gripper_is_at(target_location)
         position = self.get_position()
+
+        if not requesting_behavior:
+            if self.is_target_grabbed(target_name):
+                at_target = True
+                failure_reason = None
 
         # Determine CoS & CoF condition
         cos_condition = at_target
@@ -434,15 +445,21 @@ class GripperInteractor(BaseInteractor):
             # Update gripper and object positions first
             self.get_position()
 
-            at_target = self.gripper_is_at(self.grabbed_objects[target_name])
+            # Simulating a sensor inside the gripper that assesses if the object is held using ground truth
+            gt_object_location = None
+            if target_name in self._robot_interactors.perception.objects:
+                gt_object_location = self._robot_interactors.perception.objects[target_name]['location']
+
+            at_target = self.gripper_is_at(gt_object_location) if gt_object_location is not None else False
             oriented = self.is_oriented(target_orientation)
 
             if at_target and oriented and not self.gripper_is_open:
-                grabbed = self.has_object(gripper_position=self.get_position(), object_position= self.grabbed_objects[target_name])
+                grabbed = self.has_object(gripper_position=self.get_position(), object_position=gt_object_location)
 
             # Reset flag to allow re-approach if sanity check fails
             if not grabbed:
                 self.initial_approach = True
+                self.grabbed_objects.clear()
 
         # Determine CoS & CoF condition
         cos_condition = grabbed
@@ -539,16 +556,15 @@ class GripperInteractor(BaseInteractor):
             proximity_check = distance <= 0.1
 
         if not self.gripper_is_open and proximity_check:
-            # self.wait_counter += 1
-            # # Only set to True if both conditions are met
-            # if self.wait_counter >= 10:
                 self._has_object = True
         else:
-            # Reset counter if gripper opens
-            # self.wait_counter = 0
             self._has_object = False
 
         return self._has_object
+
+    def is_target_grabbed(self, target_name):
+        """Check if a specific target is currently grabbed."""
+        return target_name in self.grabbed_objects
 
 
     def gripper_rotate_towards(self, target_orientation):
@@ -705,11 +721,13 @@ class StateInteractor(BaseInteractor):
     def get_behavior_target_location(self, behavior_name):
         """Get the current target location for a behavior"""
         target_name = self.behavior_targets.get(behavior_name)
-        if target_name and target_name in self.perception.target_states:
-            location = self.perception.target_states[target_name]['location']
-            return location
-        
-        elif target_name and target_name in self.perception.objects:
+
+        for behavior, state in self.shared_states.items():
+            if 'target_name' in state and state['target_name'] == target_name:
+                if 'target_location' in state and state['target_location'] is not None:
+                    return state['target_location']
+
+        if target_name and target_name in self.perception.objects:
             location = self.perception.objects[target_name]['location']
             return location
 
@@ -718,13 +736,14 @@ class StateInteractor(BaseInteractor):
     def get_behavior_target_info(self, behavior_name):
         """Get full target info (location, angle) for a behavior"""
         target_name = self.behavior_targets.get(behavior_name)
-        if target_name and target_name in self.perception.target_states:
-            info = self.perception.target_states[target_name]
-            location = info.get('location')
-            angle = info.get('angle')
-            return target_name, location, angle
-        
-        elif target_name and target_name in self.perception.objects:
+
+        for behavior, state in self.shared_states.items():
+            if 'target_name' in state and state['target_name'] == target_name:
+                location = state.get('target_location')
+                angle = state.get('target_angle')
+                return target_name, location, angle
+
+        if target_name and target_name in self.perception.objects:
             info = self.perception.objects[target_name]
             location = info.get('location')
             angle = info.get('angle')

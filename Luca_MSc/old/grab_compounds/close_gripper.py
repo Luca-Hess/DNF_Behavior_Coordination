@@ -1,5 +1,4 @@
-import torch
-from Luca_MSc.elementary_behavior import ElementaryBehavior
+from Luca_MSc.old.elementary_behavior import ElementaryBehavior
 
 
 class CloseGripperBehavior(ElementaryBehavior):

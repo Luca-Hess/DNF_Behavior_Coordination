@@ -40,16 +40,14 @@ ELEMENTARY_BEHAVIOR_CONFIG = {
     'check_reach':{
             'interactor_type': 'gripper',
             'method': 'reach_check',
-            'service_args_func': lambda interactors, args, behavior_name: (
-                interactors.state.get_behavior_target_location(behavior_name),
-            )
+            'service_args_func': lambda interactors, args, behavior_name:
+            interactors.state.get_behavior_target_info(behavior_name)
     },
     'reach_for':{
             'interactor_type': 'gripper',
             'method': 'reach_for',
-            'service_args_func': lambda interactors, args, behavior_name: (
-                interactors.state.get_behavior_target_location(behavior_name),
-            )
+            'service_args_func': lambda interactors, args, behavior_name:
+            interactors.state.get_behavior_target_info(behavior_name)
     },
     'grab':{
             'interactor_type': 'gripper',
@@ -89,15 +87,5 @@ EXTENDED_BEHAVIOR_CONFIG = {
                 'new_movement_target': lambda interactors, args: args.get('drop_off_target')
             }
         ]
-    },
-    'find_and_announce': {
-        'extends': 'find',
-        'on_success': [
-            {
-                'action': 'print_message',
-                'message': lambda interactors, target_name: f"Successfully found {target_name}!"
-            }
-        ]
     }
 }
-# 

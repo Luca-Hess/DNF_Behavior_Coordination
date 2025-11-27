@@ -1,7 +1,7 @@
 import torch
 
 from DNF_torch.field import Field
-from Luca_MSc.elementary_behavior import ElementaryBehavior
+from Luca_MSc.old.elementary_behavior import ElementaryBehavior
 from interactors import RobotInteractors
 
 from grab_compounds.orient import OrientBehavior

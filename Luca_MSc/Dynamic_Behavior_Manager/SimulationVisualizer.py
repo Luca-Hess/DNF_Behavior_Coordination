@@ -45,81 +45,6 @@ class RobotSimulationVisualizer:
         self.target_obj = None
         self.drop_off = None
 
-        # Activity indicators (moved to a visible corner)
-        indicator_z = 0.5  # Raise indicators slightly above floor
-        indicator_spacing = 2.0
-        start_x = -floor_size / 2 + 1
-        start_y = -floor_size / 2 + 1
-
-        self.indicators = {
-            'find': self._create_indicator(start_x, start_y, 0.5, 'Find', indicator_z),
-            'found': self._create_indicator(start_x + indicator_spacing * 1, start_y, 0.5, 'Found', indicator_z),
-            'move': self._create_indicator(start_x + indicator_spacing * 2, start_y, 0.5, 'Move', indicator_z),
-            'close': self._create_indicator(start_x + indicator_spacing * 3, start_y, 0.5, 'Close', indicator_z),
-            'in_reach': self._create_indicator(start_x + indicator_spacing * 4, start_y, 0.5, 'In Reach', indicator_z),
-            'reach_for': self._create_indicator(start_x + indicator_spacing * 5, start_y, 0.5, 'Reach For', indicator_z),
-            'reached': self._create_indicator(start_x + indicator_spacing * 6, start_y, 0.5, 'Reached', indicator_z),
-            'grab': self._create_indicator(start_x + indicator_spacing * 7, start_y, 0.5, 'Grab', indicator_z),
-            'grabbed': self._create_indicator(start_x + indicator_spacing * 8, start_y, 0.5, 'Grabbed', indicator_z),
-            'transport': self._create_indicator(start_x + indicator_spacing * 9, start_y, 0.5, 'Transport', indicator_z)
-        }
-
-        # Equal aspect ratio for better visualization
-        self.ax.set_box_aspect([1, 1, 0.5])  # z axis half as tall
-
-        # Create indicators dynamically based on behavior chain
-        if behavior_chain:
-            self._create_dynamic_indicators(behavior_chain)
-        else:
-            self._create_default_indicators()
-
-    def _create_indicator(self, x, y, radius, label, z=0.5):
-        """Create an indicator light with label."""
-        circle = plt.Circle((x, y), radius, color='gray')
-        self.ax.add_patch(circle)
-        self.ax.text(x, y - 1.0, z, label, ha='center')
-
-        # Convert 2D circle patch to 3D
-        from mpl_toolkits.mplot3d import art3d
-        art3d.patch_2d_to_3d(circle, z=z, zdir="z")
-
-        return circle
-    
-    def _create_dynamic_indicators(self, behavior_chain):
-        """Create indicators dynamically based on behavior chain"""
-        indicator_z = 0.5
-        indicator_spacing = 2.0
-        start_x = -self.floor_size / 2 + 1
-        start_y = -self.floor_size / 2 + 1
-        
-        self.indicators = {}
-        col = 0
-        
-        for level in behavior_chain:
-            behavior_name = level['name']
-            
-            # Main behavior indicator
-            self.indicators[behavior_name] = self._create_indicator(
-                start_x + indicator_spacing * col, start_y, 0.5, 
-                behavior_name.title(), indicator_z
-            )
-            col += 1
-            
-            # Precondition indicator  
-            precond_name = f"{behavior_name}_precond"
-            self.indicators[precond_name] = self._create_indicator(
-                start_x + indicator_spacing * col, start_y, 0.5,
-                f"{behavior_name.title()} Done", indicator_z
-            )
-            col += 1
-            
-            # Check behavior indicator
-            check_name = f"{behavior_name}_check"
-            self.indicators[check_name] = self._create_indicator(
-                start_x + indicator_spacing * col, start_y, 0.5,
-                f"{behavior_name.title()} Check", indicator_z
-            )
-            col += 1
 
     def update(self, state, interactors=None):
         """Update the visualization with the current state."""
@@ -201,7 +126,6 @@ class RobotSimulationVisualizer:
             artists.append(self.gripper)
         if self.target_obj is not None:
             artists.append(self.target_obj)
-        artists.extend(list(self.indicators.values()))
         if hasattr(self, 'tube') and self.tube is not None:
             artists.append(self.tube)
         if self.drop_off is not None:
@@ -357,49 +281,3 @@ class RobotSimulationVisualizer:
         circle_z = np.zeros_like(theta)
         self.drop_off_floor_marker.set_data(circle_x, circle_y)
         self.drop_off_floor_marker.set_3d_properties(circle_z)
-
-    def _update_indicators(self, state):
-        """Update indicator lights based on state - fully dynamic"""
-        
-        # Reset all indicators to gray
-        for indicator in self.indicators.values():
-            indicator.set_color('gray')
-        
-        # Update main behavior indicators
-        for behavior_name, behavior_state in state.items():
-            if behavior_name in ['find', 'move', 'check_reach'] and isinstance(behavior_state, dict):
-                if behavior_name in self.indicators:
-                    if behavior_state.get('intention_active', False):
-                        self.indicators[behavior_name].set_color('blue')  # Searching
-                    elif behavior_state.get('cos_active', False):
-                        self.indicators[behavior_name].set_color('green')  # Latched
-        
-        # Update precondition indicators
-        if 'preconditions' in state:
-            for precond_name, precond_state in state['preconditions'].items():
-                indicator_name = f"{precond_name}_precond"
-                if indicator_name in self.indicators:
-                    if precond_state.get('active', False):
-                        self.indicators[indicator_name].set_color('green')
-        
-        # Update check indicators
-        if 'checks' in state:
-            for check_name, check_state in state['checks'].items():
-                indicator_name = f"{check_name}_check"
-                if indicator_name in self.indicators:
-                    if check_state.get('sanity_check_triggered', False):
-                        self.indicators[indicator_name].set_color('orange')  # Checking
-                    elif check_state.get('confidence_activity', 0) > 0.7:
-                        self.indicators[indicator_name].set_color('green')  # High confidence
-                    elif check_state.get('confidence_activity', 0) < 0.3:
-                        self.indicators[indicator_name].set_color('red')  # Low confidence
-
-    def _map_precondition_to_indicator(self, precond_name):
-        """Map precondition names to indicator names"""
-        mapping = {
-            'find': 'found',
-            'move': 'close', 
-            'check_reach': 'in_reach'
-            # Add more mappings as needed
-        }
-        return mapping.get(precond_name, precond_name)

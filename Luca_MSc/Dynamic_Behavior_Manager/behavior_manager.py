@@ -1,10 +1,7 @@
-import sys
-import os
-# Add DNF_torch package root
-sys.path.append(os.path.expanduser('~/nc_ws/DNF_torch'))
-
-# Add Luca_MSc subfolder for local scripts
-sys.path.append(os.path.join(os.path.expanduser('~/nc_ws/DNF_torch'), 'Luca_MSc/latching CoS experiment'))
+# import sys
+# import os
+# # Add DNF_torch package root
+# sys.path.append(os.path.expanduser('~/nc_ws/DNF_torch'))
 
 import torch
 import matplotlib
@@ -25,6 +22,13 @@ from helper_functions import initalize_log, update_log, plot_logs, animate_fixed
 import behavior_config
 
 import time
+
+"""
+Important Notice: 
+This code is conceptual work and currently lacks the higher level infrastructure that would use this behavior manager in a complete system.
+The interactor system for device interactions works, but are also simple placeholders.
+"""
+
 
 class BehaviorManager():
     def __init__(self, behaviors=list, args=dict(), debug=False):
@@ -196,7 +200,7 @@ class BehaviorManager():
 
         # System CoS: Requires ALL behavior CoS nodes to be active (AND logic)
         # Achieved via inverted CoS connections to reporter, then reporter to system CoS
-        reporter_to_system_cos_weight = 3.5
+        reporter_to_system_cos_weight = 3.3
         self.system_cos_reporter.connection_to(self.system_cos, reporter_to_system_cos_weight)
 
         # Make System CoS and CoF mutually exclusive (high inhibitory weights)
@@ -509,7 +513,7 @@ def run_behavior_manager(behaviors,
 
         # Update logs for 3D sim
         if visualize_sim:
-            state.update({'target_position': interactors.perception.objects['cup']['location']})
+            state.update({'target_position': interactors.perception.objects[behavior_args['target_object']]['location'].clone()})
             state.update({'robot_pos': interactors.movement.get_position()})
             state.update({'gripper_pos': interactors.gripper.get_position()})
             simulation_states.append(state)
@@ -606,7 +610,7 @@ if __name__ == "__main__":
                          external_input=external_input,
                          max_steps=2000,
                          debug=False,
-                         visualize_sim=False,
+                         visualize_sim=True,
                          visualize_logs=True,
                          visualize_architecture=False,
                          timing=True,
