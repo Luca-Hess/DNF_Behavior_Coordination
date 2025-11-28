@@ -610,8 +610,8 @@ if __name__ == "__main__":
                          external_input=external_input,
                          max_steps=2000,
                          debug=False,
-                         visualize_sim=True,
-                         visualize_logs=True,
+                         visualize_sim=False,
+                         visualize_logs=False,
                          visualize_architecture=False,
                          timing=True,
                          verbose=False)
