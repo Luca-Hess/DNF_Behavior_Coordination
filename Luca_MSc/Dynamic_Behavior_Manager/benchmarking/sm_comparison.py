@@ -6,16 +6,16 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 import smach
 import torch
 import time
+
 from typing import Dict, Any
 from interactors import RobotInteractors
 
-
-# Ensuring silent logs
+# Ensuring silent SMACH logs
 def silent_log(msg):
-    """Completely silence SMACH logs"""
     pass
 
 smach.set_loggers(silent_log, silent_log, silent_log, silent_log)
+
 
 class FindObjectSM(smach.State):
     """Find target object using perception"""
@@ -41,7 +41,6 @@ class FindObjectSM(smach.State):
         elif result[1]:
             return 'failure'
         else:
-            time.sleep(0.005)
             return 'preempted'
 
 
@@ -58,17 +57,14 @@ class MoveToObjectSM(smach.State):
         self.max_stagnant_ticks = 50
 
     def execute(self, userdata):
-        target_pos_temp = userdata.target_location
+        target_pos = userdata.target_location._obj
 
-        # Unwrapping tensor from Const
-        target_pos = torch.tensor([pos.item() for pos in target_pos_temp])
 
         if target_pos is None:
             return 'failure'
 
         current_pos = self.interactors.movement.get_position()
-        self.interactors.movement.move_to(target_pos, requesting_behavior='MoveToObject')
-
+        result = self.interactors.movement.move_to(target_pos, requesting_behavior='MoveToObject')
 
         distance = torch.norm(target_pos[:2] - current_pos[:2]).item()
 
@@ -80,6 +76,7 @@ class MoveToObjectSM(smach.State):
         if self.last_distance is not None:
             if abs(distance - self.last_distance) < 0.01:
                 self.stagnant_ticks += 1
+                print("Stagnant ticks:", self.stagnant_ticks)
                 if self.stagnant_ticks >= self.max_stagnant_ticks:
                     self.last_distance = None
                     self.stagnant_ticks = 0
@@ -87,8 +84,10 @@ class MoveToObjectSM(smach.State):
             else:
                 self.stagnant_ticks = 0
 
+        elif result[1]:
+            return 'failure'
+
         self.last_distance = distance
-        time.sleep(0.005)
         return 'preempted'
 
 
@@ -103,8 +102,7 @@ class CheckReachSM(smach.State):
 
     def execute(self, userdata):
         target = self.behavior_args.get('target_object')
-        target_pos_temp = userdata.target_location
-        target_pos = torch.tensor([pos.item() for pos in target_pos_temp])
+        target_pos = userdata.target_location._obj
 
         result = self.interactors.gripper.reach_check(target, target_pos, None, requesting_behavior='CheckReach')
 
@@ -113,7 +111,6 @@ class CheckReachSM(smach.State):
         elif result[1]:
             return 'failure'
         else:
-            time.sleep(0.005)
             return 'preempted'
 
 
@@ -128,8 +125,7 @@ class ReachForObjectSM(smach.State):
 
     def execute(self, userdata):
         target = self.behavior_args.get('target_object')
-        target_pos_temp = userdata.target_location
-        target_pos = torch.tensor([pos.item() for pos in target_pos_temp])
+        target_pos = userdata.target_location._obj
 
         self.interactors.gripper.reach_for(target, target_pos, None, requesting_behavior='ReachFor')
 
@@ -139,7 +135,6 @@ class ReachForObjectSM(smach.State):
         if distance < 0.01:
             return 'success'
         else:
-            time.sleep(0.005)
             return 'preempted'
 
 
@@ -158,11 +153,9 @@ class GrabTransportSM(smach.State):
         drop_off = self.behavior_args.get('drop_off_target')
 
         # Unwrap SMACH Const wrappers
-        target_pos_temp = userdata.target_location
-        target_pos = torch.tensor([pos.item() for pos in target_pos_temp])
+        target_pos = userdata.target_location._obj
 
-        target_or_temp = userdata.target_orientation
-        target_orientation = torch.tensor([orientation.item() for orientation in target_or_temp])
+        target_orientation = userdata.target_orientation._obj
 
         if self.phase == 'grab':
             result = self.interactors.gripper.grab(target,
@@ -172,13 +165,11 @@ class GrabTransportSM(smach.State):
 
             if result[0]:
                 self.phase = 'transport'
-                time.sleep(0.005)
                 return 'preempted'
             elif result[1]:
                 self.phase = 'grab'
                 return 'failure'
             else:
-                time.sleep(0.005)
                 return 'preempted'
 
         elif self.phase == 'transport':
@@ -206,7 +197,6 @@ class GrabTransportSM(smach.State):
                 self.phase = 'grab'
                 return 'success'
             else:
-                time.sleep(0.005)
                 return 'preempted'
 
         self.phase = 'grab'
@@ -221,6 +211,7 @@ class StateMachineComparison:
         self.behavior_args = behavior_args
         self.max_retries = max_retries
         self.sm = None
+        self.retry_count = 0
 
     def build_state_machine(self):
         """Build the hierarchical state machine"""
@@ -244,7 +235,7 @@ class StateMachineComparison:
                 smach.StateMachine.add('MOVE',
                                        MoveToObjectSM(self.interactors, self.behavior_args),
                                        transitions={'success': 'CHECK_REACH',
-                                                    'failure': 'FIND',
+                                                    'failure': 'failure',
                                                     'preempted': 'MOVE'})
 
                 smach.StateMachine.add('CHECK_REACH',
@@ -262,11 +253,11 @@ class StateMachineComparison:
                 smach.StateMachine.add('GRAB',
                                        GrabTransportSM(self.interactors, self.behavior_args),
                                        transitions={'success': 'success',
-                                                    'failure': 'FIND',
+                                                    'failure': 'failure',
                                                     'preempted': 'GRAB'})
 
             # Add retry wrapper
-            smach.StateMachine.add('RETRY_WRAPPER',
+            smach.StateMachine.add('MAIN_SEQUENCE',
                                    sm_retry,
                                    transitions={'success': 'SUCCESS',
                                                 'failure': 'FAILURE'})
@@ -274,46 +265,105 @@ class StateMachineComparison:
         self.sm = sm
 
     def execute(self, max_steps: int = 4000, external_perturbation=None):
-        """Execute the state machine
+        """Execute the state machine with retry logic
 
         Args:
-            max_steps: Maximum number of execution steps
+            max_steps: Maximum number of execution steps over all attempts
             external_perturbation: Optional function(step, interactors) -> None
 
         Returns:
             dict with execution metrics
         """
-        self.build_state_machine()
+        total_start_time = time.time()
+        total_steps = 0
 
-        start_time = time.time()
-        step = 0
+        for attempt in range(self.max_retries):
 
-        # Execute with step-based control for perturbations
-        while step < max_steps:
-            if external_perturbation is not None:
-                external_perturbation(step, self.interactors)
+            self.build_state_machine()
 
+            start_time = time.time()
+            step_counter = 0
+
+            # Store original "_update_once" method that is used to step the state machine
+            original_methods = {}
+
+            def wrap_state_machine(sm):
+                # Execute with step-based control for perturbations
+
+                # Don't wrap multiple times
+                if sm in original_methods:
+                    return
+
+                # Store original method
+                original_methods[sm] = sm._update_once
+
+                # Create wrapped version of "_update_once" for all nested state machines
+                def wrapped_update_once():
+                    nonlocal step_counter
+
+                    if external_perturbation is not None:
+                        external_perturbation(step_counter, self.interactors)
+
+                    step_counter += 1
+
+                    if step_counter >= max_steps:
+                        sm._is_running = False
+                        return None
+
+                    result = original_methods[sm]()
+
+                    # Centralized timing control mimicking DNF 5ms step duration
+                    time.sleep(0.005)
+
+                    return result
+
+                # Replace the original method with the wrapped version
+                sm._update_once = wrapped_update_once
+
+                # Recursively also wrap any nested state machines
+                for state in sm._states.values():
+                    if isinstance(state, smach.StateMachine):
+                        wrap_state_machine(state)
+
+            # Wrap all state machines in the hierarchy
+            wrap_state_machine(self.sm)
+
+            # Execute the state machine
             outcome = self.sm.execute()
-            step += 1
 
-            if outcome in ['SUCCESS', 'FAILURE']:
-                end_time = time.time()
+            for sm, original_methods in original_methods.items():
+                sm._update_once = original_methods
+
+            attempt_steps = step_counter
+            total_steps += attempt_steps
+
+            print(f"Attempt {attempt + 1} finished in {attempt_steps} steps and {time.time() - start_time:.2f} seconds with outcome: {outcome}")
+
+            if outcome == 'SUCCESS':
                 return {
                     'success': outcome == 'SUCCESS',
-                    'steps': step,
-                    'time': end_time - start_time,
-                    'final_status': outcome
+                    'steps': total_steps,
+                    'time': time.time() - total_start_time,
+                    'final_status': outcome,
+                    'attempts': attempt + 1
                 }
 
-            time.sleep(0.005)
+            if outcome is None and attempt >= max_steps:
+                # Continue to next retry unless this is the last attempt
+                if attempt < self.max_retries - 1:
+                    continue
 
-        end_time = time.time()
+        print("All attempts exhausted without success.")
+
+        # All attempts exhausted without success
         return {
             'success': False,
-            'steps': max_steps,
-            'time': end_time - start_time,
-            'final_status': 'TIMEOUT'
+            'steps': total_steps,
+            'time': time.time() - total_start_time,
+            'final_status': outcome,
+            'attempts': self.max_retries
         }
+
 
 if __name__ == '__main__':
     # Example usage
