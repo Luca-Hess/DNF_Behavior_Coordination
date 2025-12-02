@@ -40,15 +40,14 @@ class CheckBehavior(nn.Module):
             'intention_to_confidence': 4.0
         }
 
-
         # Use provided parameters if available, otherwise use defaults
         params = default_node_params.copy()
         weights = default_weights.copy()
         if dynamics_params is not None:
-            for node_type, node_type_params in dynamics_params.get_field_params('behavior_nodes').items():
+            for node_type, node_type_params in dynamics_params.get_field_params('check_nodes').items():
                 params[node_type].update(node_type_params)
 
-            for connection_type, connection_type_weight in dynamics_params.get_connection_weight('behavior_internal').items():
+            for connection_type, connection_type_weight in dynamics_params.get_connection_weight('check_internal').items():
                 weights[connection_type] = connection_type_weight
 
         # Create the intention node that drives behavior execution

@@ -148,6 +148,14 @@ class Field(nn.Module):
     def clear_connections(self):
         self.in_connections.clear()
 
+    def clear_connection_to(self, target_field):
+        target_field.clear_connection_from(self)
+
+    def clear_connection_from(self, source_field):
+        self.in_connections = [conn for conn in self.in_connections if conn["source"] != source_field]
+
+
+
     def cache_prev(self):
         """Call once per global step (before any forward) to snapshot firing for synchronous updates."""
         self.g_u_prev.copy_(self.g_u)

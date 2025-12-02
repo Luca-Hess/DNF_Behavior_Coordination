@@ -22,6 +22,7 @@ from sanity_check import SanityCheckBehavior
 from helper_functions import initalize_log, update_log, plot_logs, animate_fixed_chain
 
 from dnf_weights import dnf_weights
+from runtime_weights import RuntimeWeightManager
 
 import behavior_config
 
@@ -41,6 +42,9 @@ class BehaviorManager():
 
         # Use provided weights or default values
         self.weights = weights if weights is not None else dnf_weights
+
+        # Create runtime weight manager
+        self.runtime_weights = RuntimeWeightManager()
 
         self.initialize_nodes_and_behaviors(behaviors)
 
@@ -120,20 +124,66 @@ class BehaviorManager():
         default_params = self.weights.get_field_params('precondition_nodes', 'default')
         preconditions = self.nodes_list(node_params={name: default_params for name in required_behaviors}, type_str="precond")
 
+        # Register precondition nodes with runtime weights manager
+        for name in required_behaviors:
+            precond_field = preconditions[f"{name}_precond"]
+            self.runtime_weights.register_field(
+                precond_field,
+                category='precondition_nodes',
+                node_type='precondition',
+                behavior_name=name,
+                instance_id=f'{name}_precond'
+            )
+
         # Create system level CoS and CoF nodes
         system_level_nodes = self.initialize_system_level_nodes()
 
-        # Finally initialize all required behaviors and nodes
+        # Register system-level nodes with runtime weights manager
+        for node_name, field in system_level_nodes.items():
+            node_type = node_name.replace('_system', '')
+            self.runtime_weights.register_field(
+                field,
+                category='system_nodes',
+                node_type=node_type,
+                instance_id=node_name
+            )
+
+        # Initialize all required behaviors and their nodes
         for name in required_behaviors:
-            setattr(self, f"{name}_behavior", ElementaryBehaviorInterface(behavior_name=name))
-            setattr(self, f"check_{name}", SanityCheckBehavior(behavior_name=name))
+            behavior = ElementaryBehaviorInterface(behavior_name=name, dynamics_params=self.weights)
+            check = SanityCheckBehavior(behavior_name=name, dynamics_params=self.weights)
+
+            # Register behavior nodes with runtime weights manager
+            for node_type in ['intention', 'CoS', 'CoS_inverter', 'CoF']:
+                field = getattr(behavior, node_type)
+                self.runtime_weights.register_field(
+                    field,
+                    category='behavior_nodes',
+                    node_type=node_type,
+                    behavior_name=name,
+                    instance_id=f'{name}_{node_type}'
+                )
+
+            # Register check nodes with runtime weights manager
+            for node_type in ['intention', 'confidence']:
+                field = getattr(check, node_type)
+                self.runtime_weights.register_field(
+                    field,
+                    category='check_nodes',
+                    node_type=node_type,
+                    behavior_name=name,
+                    instance_id=f'check_{name}_{node_type}'
+                )
+
+            setattr(self, f"{name}_behavior", behavior)
+            setattr(self, f"check_{name}", check)
             setattr(self, f"{name}_precond", preconditions[f"{name}_precond"])
 
         # Set system-level nodes as attributes
-        setattr(self, "system_intention", system_level_nodes['intention_system'])
-        setattr(self, "system_cos_reporter", system_level_nodes['cos_reporter_system'])
-        setattr(self, "system_cos", system_level_nodes['cos_system'])
-        setattr(self, "system_cof", system_level_nodes['cof_system'])
+        for node_name, field in system_level_nodes.items():
+            name = node_name.replace('_system', '')
+            setattr(self, f'system_{name}', field)
+
 
     def initialize_system_level_nodes(self):
         # Setup system-level nodes
@@ -166,62 +216,134 @@ class BehaviorManager():
         w = self.weights
 
         for i, level in enumerate(self.behavior_chain):
+            behavior_name = level['name']
+
             # CoS to precondition
-            level['behavior'].CoS.connection_to(
+            weight = w.get_connection_weight('behavior_to_precond', 'cos_to_precond')
+            level['behavior'].CoS.connection_to(level['precondition'],weight)
+            self.runtime_weights.register_connection(
+                level['behavior'].CoS,
                 level['precondition'],
-                w.get_connection_weight('behavior_to_precond', 'cos_to_precond')
+                weight,
+                source_id=f'{behavior_name}_cos',
+                target_id=f'{behavior_name}_precond',
+                connection_type='cos_to_precond'
             )
 
             # CoS to check
-            level['behavior'].CoS.connection_to(
+            weight = w.get_connection_weight('behavior_to_check', 'cos_to_check_intention')
+            level['behavior'].CoS.connection_to(level['check'].intention, weight)
+            self.runtime_weights.register_connection(
+                level['behavior'].CoS,
                 level['check'].intention,
-                w.get_connection_weight('behavior_to_check', 'cos_to_check_intention')
+                weight,
+                source_id=f'{behavior_name}_cos',
+                target_id=f'check_{behavior_name}_intention',
+                connection_type='cos_to_check_intention'
             )
 
-            # Precondition to next intention (weight 6) - if there's a next level
+            # Precondition to next intention
             if level.get('has_next_precondition', False) and i + 1 < len(self.behavior_chain):
                 next_level = self.behavior_chain[i + 1]
-                level['precondition'].connection_to(
+                next_name = next_level['name']
+                weight = w.get_connection_weight('precond_to_next', 'precond_to_intention')
+                level['precondition'].connection_to(next_level['behavior'].intention, weight)
+                self.runtime_weights.register_connection(
+                    level['precondition'],
                     next_level['behavior'].intention,
-                    w.get_connection_weight('precond_to_next', 'precond_to_intention')
+                    weight,
+                    source_id=f'{behavior_name}_precond',
+                    target_id=f'{next_name}_intention',
+                    connection_type='precond_to_intention'
                 )
 
         # System-level connections
         for level in self.behavior_chain:
-            # System Intention activates all precondition nodes (which inhibit their respective behavior intentions until CoS is achieved)
+            behavior_name = level['name']
 
-            self.system_intention.connection_to(
+            # System Intention activates preconditions and behavior intention
+            # (which inhibit their respective behavior intentions until CoS is achieved)
+            weight = w.get_connection_weight('system_level', 'intention_to_precond')
+            self.system_intention.connection_to(level['precondition'], weight)
+            self.runtime_weights.register_connection(
+                self.system_intention,
                 level['precondition'],
-                w.get_connection_weight('system_level', 'intention_to_precond'))
-            self.system_intention.connection_to(
+                weight,
+                source_id='intention_system',
+                target_id=f'{behavior_name}_precond',
+                connection_type='system_intention_to_precond'
+            )
+
+            weight = w.get_connection_weight('system_level', 'intention_to_behavior')
+            self.system_intention.connection_to(level['behavior'].intention, weight)
+            self.runtime_weights.register_connection(
+                self.system_intention,
                 level['behavior'].intention,
-                w.get_connection_weight('system_level', 'intention_to_behavior')
+                weight,
+                source_id='intention_system',
+                target_id=f'{behavior_name}_intention',
+                connection_type='system_intention_to_behavior'
             )
-            # System CoS Reporter: Inverted CoS from all behaviors (AND logic)
+
+            # System CoS Reporter: Inverted CoS from all behaviors (OR logic)
             # Any activity in CoS inverters will inhibit reporter
-            level['behavior'].CoS_inverter.connection_to(
+            weight = w.get_connection_weight('system_level', 'cos_inverter_to_reporter')
+            level['behavior'].CoS_inverter.connection_to(self.system_cos_reporter, weight)
+            self.runtime_weights.register_connection(
+                level['behavior'].CoS_inverter,
                 self.system_cos_reporter,
-                w.get_connection_weight('system_level', 'cos_inverter_to_reporter')
+                weight,
+                source_id=f'{behavior_name}_cos_inverter',
+                target_id='cos_reporter_system',
+                connection_type='cos_inverter_to_reporter'
             )
+
             # System CoF: ANY behavior CoF can trigger system failure (OR logic)
-            level['behavior'].CoF.connection_to(
+            weight = w.get_connection_weight('system_level', 'behavior_cof_to_system_cof')
+            level['behavior'].CoF.connection_to(self.system_cof, weight)
+            self.runtime_weights.register_connection(
+                level['behavior'].CoF,
                 self.system_cof,
-                w.get_connection_weight('system_level', 'behavior_cof_to_system_cof'))
+                weight,
+                source_id=f'{behavior_name}_cof',
+                target_id='cof_system',
+                connection_type='behavior_cof_to_system_cof'
+            )
 
         # System CoS: Requires ALL behavior CoS nodes to be active (AND logic)
         # Achieved via inverted CoS connections to reporter, then reporter to system CoS
-        self.system_cos_reporter.connection_to(
+        weight = w.get_connection_weight('system_level', 'reporter_to_system_cos')
+        self.system_cos_reporter.connection_to(self.system_cos, weight)
+        self.runtime_weights.register_connection(
+            self.system_cos_reporter,
             self.system_cos,
-            w.get_connection_weight('system_level', 'reporter_to_system_cos'))
+            weight,
+            source_id='cos_reporter_system',
+            target_id='cos_system',
+            connection_type='reporter_to_system_cos'
+        )
 
         # Make System CoS and CoF mutually exclusive (high inhibitory weights)
-        self.system_cos.connection_to(
+        weight = w.get_connection_weight('mutual_inhibition', 'system_cos_to_cof')
+        self.system_cos.connection_to(self.system_cof, weight)
+        self.system_cof.connection_to(self.system_cos, weight)
+        self.runtime_weights.register_connection(
+            self.system_cos,
             self.system_cof,
-            w.get_connection_weight('mutual_inhibition', 'system_cos_to_cof')
+            weight,
+            source_id='cos_system',
+            target_id='cof_system',
+            connection_type='system_cos_to_cof'
         )
-        self.system_cof.connection_to(
-            self.system_cos, w.get_connection_weight('mutual_inhibition', 'system_cof_to_cos')
+        self.runtime_weights.register_connection(
+            self.system_cof,
+            self.system_cos,
+            weight,
+            source_id='cof_system',
+            target_id='cos_system',
+            connection_type='system_cof_to_cos'
         )
+
 
         self._debug_print(f"Setup system-level connections: {len(self.behavior_chain)} behaviors connected to system CoS/CoF")
 
@@ -502,6 +624,30 @@ def run_behavior_manager(behaviors,
         weights=dnf_weights
     )
 
+    #print('All Fields in Behavior Manager:', behavior_seq.runtime_weights.list_all_fields())
+    #behavior_seq.runtime_weights.disable_connection('check_reach_precond_to_reach_for_intention')
+    #behavior_seq.runtime_weights.set_connection_weight('move_precond_to_check_reach_intention', -0.1)
+    # behavior_seq.runtime_weights.set_field_param('move_CoS', 'self_connection_w0', 50.0)
+    # behavior_seq.runtime_weights.get_field_params('move_CoS')
+
+    ## Get RL-ready parameters
+    # params, metadata = behavior_seq.runtime_weights.get_trainable_params()
+    #
+    # print("Trainable Parameters Metadata:")
+    # i = 0
+    # for meta in metadata:
+    #     if 'instance_id' not in meta:
+    #         print('Connection: ', meta['source_id'], '->', meta['target_id'])
+    #     if 'instance_id' in meta:
+    #         print('Node: ', meta['instance_id'])
+    #     print('Value: ', params[0])
+    #     print('---')
+    #     i += 1
+
+    ## Save optimized configuration
+    #behavior_seq.runtime_weights.save('optimized_weights.json')
+
+
     # Log all activations and activities for plotting
     if visualize_logs or visualize_architecture:
         log = initalize_log(behavior_seq.behavior_chain)
@@ -626,8 +772,8 @@ if __name__ == "__main__":
                          external_input=external_input,
                          max_steps=2000,
                          debug=False,
-                         visualize_sim=False,
-                         visualize_logs=True,
+                         visualize_sim=True,
+                         visualize_logs=False,
                          visualize_architecture=False,
                          timing=True,
                          verbose=False)
