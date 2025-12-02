@@ -7,17 +7,16 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from DNF_torch.field import Field
 
-
 class ElementaryBehavior(nn.Module):
     """
     Elementary behavior structure using Dynamic Neural Fields.
     Includes CoI and CoS nodes for behavior control.
     """
 
-    def __init__(self, field_params=None):
+    def __init__(self, dynamics_params=None):
         super().__init__()
 
-        # Default parameters for fields if not provided
+        # Default parameters for fields if none provided
         default_params = {
             'shape': (),
             'time_step': 5.0,
@@ -28,32 +27,48 @@ class ElementaryBehavior(nn.Module):
             'self_connection_w0': 1.0
         }
 
+        default_node_params = {
+            'intention': {**default_params},
+            'cos': {**default_params},
+            'cos_inverter': {**default_params, 'resting_level': 1.0}, # Inverter starts active
+            'cof': {**default_params}
+        }
+
+        default_weights = {
+            'cos_to_intention': -7.0,
+            'cos_to_inverter': -4.0,
+            'cof_to_intention': -7.0,
+            'cof_to_cos': -7.0
+        }
+
         # Use provided parameters if available, otherwise use defaults
-        params = default_params.copy()
-        if field_params is not None:
-            params.update(field_params)
+        params = default_node_params.copy()
+        weights = default_weights.copy()
+        if dynamics_params is not None:
+            for node_type, node_type_params in dynamics_params.get_field_params('behavior_nodes').items():
+                params[node_type].update(node_type_params)
+
+            for connection_type, connection_type_weight in dynamics_params.get_connection_weight('behavior_internal').items():
+                weights[connection_type] = connection_type_weight
 
         # Create the intention node that drives behavior execution
-        self.intention = Field(**{**params})
+        self.intention = Field(**{**params['intention']})
 
         # Create the control nodes
-        self.CoS = Field(**{**params})  # Condition of Satisfaction - active when behavior is fulfilled
-        self.CoS_inverter = Field(**{**params, 'resting_level': 1.0})  # Inverter for CoS - active when CoS is inactive
-        self.CoF = Field(**{**params})  # Condition of Failure - active when behavior cannot be fulfilled
+        # Condition of Satisfaction - active when behavior is fulfilled
+        self.CoS = Field(**{**params['cos']})
+        # Inverter for CoS - active when CoS is inactive
+        self.CoS_inverter = Field(**{**params['cos_inverter']})
+        # Condition of Failure - active when behavior cannot be fulfilled
+        self.CoF = Field(**{**params['cof']})
+
 
         # Initialize connection weights
-        cos_to_intention_weight = -7.0  # Inhibitory - CoS inhibits intention when satisfied
-                                        # because the behavior does not need to be active anymore
-
-        cos_to_inverter_weight = -4.0   # Inhibitory - CoS inhibits its inverter when satisfied
-
-        cof_to_all_weight = -7.0        # Inhibitory - CoF inhibits both intention and CoS when failure occurs
-
         # Inhibitory connection
-        self.CoS.connection_to(self.intention, cos_to_intention_weight)
-        self.CoS.connection_to(self.CoS_inverter, cos_to_inverter_weight)
-        self.CoF.connection_to(self.intention, cof_to_all_weight)
-        self.CoF.connection_to(self.CoS, cof_to_all_weight)
+        self.CoS.connection_to(self.intention, weights['cos_to_intention'])
+        self.CoS.connection_to(self.CoS_inverter, weights['cos_to_inverter'])
+        self.CoF.connection_to(self.intention, weights['cof_to_intention'])
+        self.CoF.connection_to(self.CoS, weights['cof_to_cos'])
 
         # Create a buffer for previous g_u (activity) values (for synchronous updates)
         self.intention.register_buffer("g_u_prev", torch.zeros_like(self.intention.g_u))

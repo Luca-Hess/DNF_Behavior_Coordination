@@ -8,12 +8,15 @@ sys.path.append(os.path.join(os.path.expanduser('~/nc_ws/DNF_torch'), 'Luca_MSc/
 
 from elementary_behavior import ElementaryBehavior
 
+from dnf_weights import dnf_weights
+
 class ElementaryBehaviorInterface (ElementaryBehavior):
     """This interface extends the ElementaryBehavior to allow external setting of CoS input and processing DNF dynamics each step."""
-    def __init__(self, field_params=None):
-        super().__init__(field_params)
+    def __init__(self, behavior_name=None, dynamics_params=dnf_weights):
+        super().__init__(dynamics_params)
         self.cos_input = 0.0  # Subscribed value from external publisher
         self.cof_input = 0.0  # Subscribed value from external publisher
+        self.behavior_name = behavior_name  # Name of the elementary behavior
 
     def set_cos_input(self, value):
         """Called by external publisher when CoS state changes"""

@@ -17,7 +17,7 @@ class CheckBehavior(nn.Module):
     Includes intention and confidence node to time & tune sanity checks.
     """
 
-    def __init__(self, field_params=None):
+    def __init__(self, dynamics_params=None):
         super().__init__()
 
         # Default parameters for fields if not provided
@@ -31,22 +31,34 @@ class CheckBehavior(nn.Module):
             'self_connection_w0': 1.0
         }
 
+        default_node_params = {
+            'intention': {**default_params},
+            'confidence': {**default_params, 'beta': 2.0, 'resting_level': -4.0, 'time_scale': 300.0}
+        }
+
+        default_weights = {
+            'intention_to_confidence': 4.0
+        }
+
+
         # Use provided parameters if available, otherwise use defaults
-        params = default_params.copy()
-        if field_params is not None:
-            params.update(field_params)
+        params = default_node_params.copy()
+        weights = default_weights.copy()
+        if dynamics_params is not None:
+            for node_type, node_type_params in dynamics_params.get_field_params('behavior_nodes').items():
+                params[node_type].update(node_type_params)
+
+            for connection_type, connection_type_weight in dynamics_params.get_connection_weight('behavior_internal').items():
+                weights[connection_type] = connection_type_weight
 
         # Create the intention node that drives behavior execution
-        self.intention = Field(**params)
+        self.intention = Field(**params['intention'])
 
         # Create the confidence node that triggers sanity checks - currently tuned to trigger with ~1Hz 
-        self.confidence = Field(**{**params, 'beta': 2.0, 'resting_level': -4.0, 'time_scale': 300.0})
-
-        # Initialize connection weights
-        intention_to_confidence_weight = 4  # Excitatory
+        self.confidence = Field(**{**params['confidence']})
 
         # Excitatory (reversed logic => once confidence activity > 0, confidence is considered to be too low)
-        self.intention.connection_to(self.confidence, intention_to_confidence_weight)
+        self.intention.connection_to(self.confidence, weights['intention_to_confidence'])
 
         # Create a buffer for previous g_u values (for synchronous updates)
         self.intention.register_buffer("g_u_prev", torch.zeros_like(self.intention.g_u))

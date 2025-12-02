@@ -4,8 +4,8 @@ class SanityCheckBehavior(CheckBehavior):
     """
     Low-cost sanity check behavior to verify if a behavior target-state is still achieved.
     """
-    def __init__(self, behavior_name=None, field_params=None):
-        super().__init__(field_params)
+    def __init__(self, behavior_name=None, dynamics_params=None):
+        super().__init__(dynamics_params)
         self.cos_input = 5.0
         self.cof_input = 0.0
         self.behavior_name = behavior_name  # Name of the associated elementary behavior
