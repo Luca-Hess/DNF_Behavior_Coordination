@@ -11,7 +11,7 @@ sys.path.append(os.path.join(os.path.expanduser('~/nc_ws/DNF_torch'), 'Luca_MSc/
 
 from DNF_torch.field import Field
 
-class CheckBehavior(nn.Module):
+class SanityCheckBehavior(nn.Module):
     """
     Check behavior structure using Dynamic Neural Fields.
     Includes intention and confidence node to time & tune sanity checks.

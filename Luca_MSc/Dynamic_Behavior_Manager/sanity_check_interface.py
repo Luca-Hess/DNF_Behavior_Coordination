@@ -1,6 +1,6 @@
-from check_behavior import CheckBehavior
+from check_behavior import SanityCheckBehavior
 
-class SanityCheckBehavior(CheckBehavior):
+class SanityCheckInterface(SanityCheckBehavior):
     """
     Low-cost sanity check behavior to verify if a behavior target-state is still achieved.
     """

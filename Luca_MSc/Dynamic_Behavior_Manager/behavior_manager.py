@@ -13,11 +13,11 @@ from matplotlib.animation import FuncAnimation
 from DNF_torch.field import Field
 
 from SimulationVisualizer import RobotSimulationVisualizer
-from interactors import RobotInteractors
+from Luca_MSc.Dynamic_Behavior_Manager.DNF_interactors.robot_interactors import RobotInteractors
 
 from elementary_behavior_interface import ElementaryBehaviorInterface
 
-from sanity_check import SanityCheckBehavior
+from sanity_check_interface import SanityCheckInterface
 
 from helper_functions import initalize_log, update_log, plot_logs, animate_fixed_chain
 
@@ -151,7 +151,7 @@ class BehaviorManager():
         # Initialize all required behaviors and their nodes
         for name in required_behaviors:
             behavior = ElementaryBehaviorInterface(behavior_name=name, dynamics_params=self.weights)
-            check = SanityCheckBehavior(behavior_name=name, dynamics_params=self.weights)
+            check = SanityCheckInterface(behavior_name=name, dynamics_params=self.weights)
 
             # Register behavior nodes with runtime weights manager
             for node_type in ['intention', 'CoS', 'CoS_inverter', 'CoF']:
@@ -210,6 +210,8 @@ class BehaviorManager():
             extended_config = behavior_config.EXTENDED_BEHAVIOR_CONFIG[behavior_name]
             return extended_config.get('extends', behavior_name)
         return behavior_name
+
+
 
     def setup_connections(self):
         """Setup all neural field connections using behavior chain"""
@@ -772,8 +774,8 @@ if __name__ == "__main__":
                          external_input=external_input,
                          max_steps=2000,
                          debug=False,
-                         visualize_sim=True,
-                         visualize_logs=False,
+                         visualize_sim=False,
+                         visualize_logs=True,
                          visualize_architecture=False,
                          timing=True,
                          verbose=False)
