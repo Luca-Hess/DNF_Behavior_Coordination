@@ -34,6 +34,9 @@ class StateInteractor(BaseInteractor):
                 # Movement/gripper behaviors initially use the primary target
                 self.behavior_targets[behavior_name] = args.get('target_object')
 
+            elif interactor_type == 'parallel':
+                self.behavior_targets[behavior_name] = args.get('target_object')
+
         return True, self.behavior_targets.copy()
 
     def update_behavior_target(self, behavior_name, new_target_name, requesting_behavior=None):

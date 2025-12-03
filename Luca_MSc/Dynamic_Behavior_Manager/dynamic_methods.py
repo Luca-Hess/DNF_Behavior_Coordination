@@ -1,4 +1,4 @@
-from interactors import BaseInteractor
+from Luca_MSc.Dynamic_Behavior_Manager.DNF_interactors.robot_interactors import BaseInteractor
 from interactor_config import INTERACTOR_CONFIG
 
 import torch

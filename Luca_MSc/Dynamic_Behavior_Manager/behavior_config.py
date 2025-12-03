@@ -89,3 +89,12 @@ EXTENDED_BEHAVIOR_CONFIG = {
         ]
     }
 }
+
+# Parallel behaviors - execute multiple behaviors simultaneously
+PARALLEL_BEHAVIOR_CONFIG = {
+    'move_and_reach': {
+        'parallel_behaviors': ['move', 'reach_for'],
+        'completion_strategy': 'all',  # 'all' or 'any'
+        'shared_target': True  # All behaviors receive the same target
+    }
+}

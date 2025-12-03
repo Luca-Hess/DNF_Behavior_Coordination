@@ -1,12 +1,14 @@
 from check_behavior import SanityCheckBehavior
 
+from dnf_weights import dnf_weights
+
 class SanityCheckInterface(SanityCheckBehavior):
     """
     Low-cost sanity check behavior to verify if a behavior target-state is still achieved.
     """
     def __init__(self, behavior_name=None, dynamics_params=None):
         super().__init__(dynamics_params)
-        self.cos_input = 5.0
+        self.cos_input = dnf_weights.connection_weights['cos_cof_default']['cos_active']
         self.cof_input = 0.0
         self.behavior_name = behavior_name  # Name of the associated elementary behavior
         self.interactor = None              # To be set externally if needed
@@ -44,14 +46,14 @@ class SanityCheckInterface(SanityCheckBehavior):
 
             # Further assess if CoF has been reached and set CoF input accordingly
             if result[1]:
-                cof_value = 5.0
+                cof_value = dnf_weights.connection_weights['cos_cof_default']['cof_active']
             else:
                 cof_value = 0.0
 
 
         else:
             # Check passed - set/confirm CoS input at 5.0
-            cos_value = 5.0
+            cos_value = dnf_weights.connection_weights['cos_cof_default']['cof_active']
             cof_value = 0.0
 
         # Update CoS & CoF input of the associated elementary behavior

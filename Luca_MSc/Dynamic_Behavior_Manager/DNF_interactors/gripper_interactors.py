@@ -96,6 +96,9 @@ class GripperInteractor(BaseInteractor):
         motor_cmd = None
         failure_reason = None
 
+        if self.is_target_grabbed(target_name):
+            target_location = self.gripper_position.clone()
+
         # For continous calls, actually move the gripper
         if requesting_behavior and target_location is not None:
             if not self.gripper_can_reach(target_location) and target_location[2] > self.max_reach:
@@ -106,10 +109,9 @@ class GripperInteractor(BaseInteractor):
         at_target = self.gripper_is_at(target_location)
         position = self.get_position()
 
-        if not requesting_behavior:
-            if self.is_target_grabbed(target_name):
-                at_target = True
-                failure_reason = None
+        if self.is_target_grabbed(target_name):
+            at_target = True
+            failure_reason = None
 
         # Determine CoS & CoF condition
         cos_condition = at_target

@@ -14,6 +14,7 @@ from DNF_torch.field import Field
 
 from SimulationVisualizer import RobotSimulationVisualizer
 from Luca_MSc.Dynamic_Behavior_Manager.DNF_interactors.robot_interactors import RobotInteractors
+from Luca_MSc.Dynamic_Behavior_Manager.DNF_interactors.parallel_interactors import ParallelInteractor
 
 from elementary_behavior_interface import ElementaryBehaviorInterface
 
@@ -120,6 +121,18 @@ class BehaviorManager():
             if base_name != name:  # This is an extended behavior
                 required_behaviors.add(base_name)
 
+        parallel_component_behaviors = set()
+        # If there are any parallel behaviors, track their component behaviors
+        for name in behaviors:
+            if name in behavior_config.PARALLEL_BEHAVIOR_CONFIG:
+                parallel_config = behavior_config.PARALLEL_BEHAVIOR_CONFIG[name]
+                for component_name in parallel_config['parallel_behaviors']:
+                    base_name = self._get_base_behavior_name(component_name)
+                    if base_name != component_name:
+                        parallel_component_behaviors.add(base_name)
+                    else:
+                        parallel_component_behaviors.add(component_name)
+
         # Create precondition nodes for all behaviors
         default_params = self.weights.get_field_params('precondition_nodes', 'default')
         preconditions = self.nodes_list(node_params={name: default_params for name in required_behaviors}, type_str="precond")
@@ -179,6 +192,23 @@ class BehaviorManager():
             setattr(self, f"check_{name}", check)
             setattr(self, f"{name}_precond", preconditions[f"{name}_precond"])
 
+        # Initialize behaviors and checks for parallel component behaviors
+        for name in parallel_component_behaviors:
+            behavior = ElementaryBehaviorInterface(behavior_name=name, dynamics_params=self.weights)
+
+            # Register behavior nodes with runtime weights manager
+            for node_type in ['intention', 'CoS', 'CoS_inverter', 'CoF']:
+                field = getattr(behavior, node_type)
+                self.runtime_weights.register_field(
+                    field,
+                    category='behavior_nodes',
+                    node_type=node_type,
+                    behavior_name=name,
+                    instance_id=f'{name}_{node_type}'
+                )
+
+            setattr(self, f"{name}_behavior", behavior)
+
         # Set system-level nodes as attributes
         for node_name, field in system_level_nodes.items():
             name = node_name.replace('_system', '')
@@ -219,6 +249,54 @@ class BehaviorManager():
 
         for i, level in enumerate(self.behavior_chain):
             behavior_name = level['name']
+
+            # Handling Special case of parallel behaviors #
+            if level.get('is_parallel', False):
+                # Connecting each component behavior's CoS/CoF to envelope behavior nodes
+                for component_name in level['parallel_behaviors']:
+                    base_name = self._get_base_behavior_name(component_name)
+                    component_behavior = getattr(self, f"{base_name}_behavior")
+
+                    # Component CoS to Envelope CoS (logic based on completion strategy)
+                    # any => OR, all => AND (weights are reduced based on number of component behaviors)
+                    weight = w.get_connection_weight('parallel_behavior_to_envelope', 'cos_to_envelope_cos')
+                    if level['completion_strategy'] == 'all':
+                        weight /= len(level['parallel_behaviors'])
+                    component_behavior.CoS.connection_to(level['behavior'].CoS, weight)
+                    self.runtime_weights.register_connection(
+                        component_behavior.CoS,
+                        level['behavior'].CoS,
+                        weight,
+                        source_id=f'{base_name}_cos',
+                        target_id=f'{behavior_name}_cos',
+                        connection_type='component_cos_to_envelope_cos'
+                    )
+
+                    # Component CoF to Envelope CoF (always OR logic)
+                    weight = w.get_connection_weight('parallel_behavior_to_envelope', 'cof_to_envelope_cof')
+                    component_behavior.CoF.connection_to(level['behavior'].CoF, weight)
+                    self.runtime_weights.register_connection(
+                        component_behavior.CoF,
+                        level['behavior'].CoF,
+                        weight,
+                        source_id=f'{base_name}_cof',
+                        target_id=f'{behavior_name}_cof',
+                        connection_type='component_cof_to_envelope_cof'
+                    )
+
+                    # Envelope intention to all Component intentions (shared activation)
+                    weight = w.get_connection_weight('envelope_to_component_behavior',
+                                                     'envelope_intention_to_component_intention')
+                    level['behavior'].intention.connection_to(component_behavior.intention, weight)
+                    self.runtime_weights.register_connection(
+                        level['behavior'].intention,
+                        component_behavior.intention,
+                        weight,
+                        source_id=f'{behavior_name}_intention',
+                        target_id=f'{base_name}_intention',
+                        connection_type='envelope_intention_to_component_intention'
+                    )
+
 
             # CoS to precondition
             weight = w.get_connection_weight('behavior_to_precond', 'cos_to_precond')
@@ -351,8 +429,41 @@ class BehaviorManager():
 
 
     def _resolve_behavior_config(self, behavior_name):
-        """Resolve behavior configuration, including extended behaviors."""
+        """
+        Resolve behavior configuration, including extended behaviors and parallel behaviors.
+        """
         try:
+            # Creating a wrapper for parallel behaviors
+            if behavior_name in behavior_config.PARALLEL_BEHAVIOR_CONFIG:
+                parallel_config = behavior_config.PARALLEL_BEHAVIOR_CONFIG[behavior_name]
+
+                # Building list of component interactor configs that make up the parallel behaviors
+                # as well as the names of those behaviors
+                component_configs = []
+                component_behavior_names = []
+
+                for component_name in parallel_config['parallel_behaviors']:
+                    single_component_config = behavior_config.ELEMENTARY_BEHAVIOR_CONFIG[component_name]
+                    component_configs.append({
+                        'interactor_type': single_component_config['interactor_type'],
+                        'method': single_component_config['method'],
+                        'service_args_func': single_component_config['service_args_func']
+                    })
+                    component_behavior_names.append(component_name)
+
+                # Storing metadata to create the Parallel Interactor with
+                return {
+                    'is_parallel': True,
+                    'component_configs': component_configs,
+                    'parallel_behaviors': component_behavior_names,
+                    'completion_strategy': parallel_config['completion_strategy'],
+
+                    'interactor_type': 'parallel',  # Special interactor type flag for "setup_subscriptions"
+                    'method': 'execute_parallel'
+                }
+
+
+            # Handling extended behaviors
             if behavior_name in behavior_config.EXTENDED_BEHAVIOR_CONFIG:
                 extended_config = behavior_config.EXTENDED_BEHAVIOR_CONFIG[behavior_name]
                 base_name = extended_config.get('extends')
@@ -362,6 +473,7 @@ class BehaviorManager():
                     config.update({k: v for k, v in extended_config.items() if k != 'extends'})
                     return config
 
+            # Handling elementary behaviors
             if behavior_name in behavior_config.ELEMENTARY_BEHAVIOR_CONFIG:
                 return behavior_config.ELEMENTARY_BEHAVIOR_CONFIG.get(behavior_name, {})
 
@@ -377,22 +489,70 @@ class BehaviorManager():
         # Initialize StateInteractor based on behavior chain
         interactors.state.initialize_from_behavior_chain(self.behavior_chain, self.behavior_args)
 
-
         # Main behavior subscribes to interactor CoS updates
         for level in self.behavior_chain:
-            interactor = getattr(interactors, level['interactor_type'])
 
-            # Subscribe to CoS and CoF updates
-            interactor.subscribe_cos_updates(
-                level['name'], level['behavior'].set_cos_input
-            )
+            # Creating the ParallelInteractor for parallel behaviors
+            if level.get('interactor_type') == 'parallel':
+                # Build interactor
+                wrapped_interactors = []
+                for single_component_config in level['component_configs']:
+                    actual_interactor = getattr(interactors, single_component_config['interactor_type'])
+                    wrapped_interactors.append({
+                        'interactor': actual_interactor,
+                        'method': single_component_config['method'],
+                        'service_args_func': single_component_config['service_args_func']
+                    })
 
-            interactor.subscribe_cof_updates(
-                level['name'], level['behavior'].set_cof_input
-            )
+                # Creating the wrapper around the component interactors
+                parallel_interactor = ParallelInteractor(
+                    wrapped_interactors,
+                    level['parallel_behaviors']
+                )
 
-            # Set up check behavior to publish back to the same interactor
-            level['check'].set_interactor(interactor)
+                # Store wrapper like normal interactor
+                level['interactor_instance'] = parallel_interactor
+
+                # Sanity check handled for all component behaviors via the wrapper
+                level['check'].set_interactor(parallel_interactor)
+
+                # Additionally set the targets of the component behaviors and subscribe them to CoS & CoF update
+                parallel_behaviors = []
+                for component_name in level['parallel_behaviors']:
+                    parallel_behaviors.append({'name': component_name})
+                for i, config in enumerate(level['component_configs']):
+                    interactor_type = config['interactor_type']
+                    actual_interactor = getattr(interactors, interactor_type)
+                    name = parallel_behaviors[i]['name']
+                    parallel_behaviors[i].update({'interactor_type': interactor_type,
+                                                  'actual_interactor': actual_interactor})
+
+                    actual_interactor.subscribe_cos_updates(
+                        name , getattr(self, f'{name}_behavior').set_cos_input
+                    )
+
+                    actual_interactor.subscribe_cof_updates(
+                        name , getattr(self, f'{name}_behavior').set_cof_input
+                    )
+
+                interactors.state.initialize_from_behavior_chain(parallel_behaviors, self.behavior_args)
+
+            # Normal single, non-parallel interactors
+            else:
+                interactor = getattr(interactors, level['interactor_type'])
+                level['interactor_instance'] = interactor
+
+                # Subscribe to CoS and CoF updates
+                interactor.subscribe_cos_updates(
+                    level['name'], level['behavior'].set_cos_input
+                )
+
+                interactor.subscribe_cof_updates(
+                    level['name'], level['behavior'].set_cof_input
+                )
+
+                # Set up check behavior to publish back to the same interactor
+                level['check'].set_interactor(interactor)
 
     def clear_subscriptions(self, interactors):
         """Clear all subscriptions from interactors and release check behaviors"""
@@ -515,16 +675,23 @@ class BehaviorManager():
         # Execute continuous world interaction for active behavior
         if active_behavior:
             level = next(l for l in self.behavior_chain if l['name'] == active_behavior)
-            interactor = getattr(interactors, level['interactor_type'])
+            interactor = level['interactor_instance']
 
             # Get method dynamically
             method = getattr(interactor, level['method'])
 
-            # Get service args and call continuous method
-            service_args = level['service_args_func'](interactors, self.behavior_args, level['name'])
-            if service_args[0] is not None:  # Only call if we have valid args
-                method(*service_args, requesting_behavior=level['name'])
-                self._debug_print(f"Executed continuous interaction for {active_behavior} with args {service_args}")
+
+            if level.get('is_parallel', False):
+                method(interactors, self.behavior_args, requesting_behavior=level['name'])
+
+            else:
+                # Get service args and call continuous method
+                service_args = level['service_args_func'](interactors, self.behavior_args, level['name'])
+
+                # Only call if we have valid args
+                if service_args[0] is not None:
+                    method(*service_args, requesting_behavior=level['name'])
+                    self._debug_print(f"Executed continuous interaction for {active_behavior} with args {service_args}")
 
         # External input to system intention node
         self.system_intention(external_input)
@@ -533,6 +700,14 @@ class BehaviorManager():
         states = {}
         for level in self.behavior_chain:
             states[level['name']] = level['behavior'].execute(external_input=0.0)
+
+            # Also advance component behaviors of parallel behaviors
+            if level.get('is_parallel', False):
+                for component_name in level['parallel_behaviors']:
+                    base_name = self._get_base_behavior_name(component_name)
+                    component_behavior = getattr(self, f"{base_name}_behavior")
+                    state_par = component_behavior.execute(external_input=0.0)
+                    #print(f"[DEBUG] Component behavior {component_name} state: {state_par}")
 
         self._debug_print(f"Behavior states: {states}")
 
@@ -588,17 +763,24 @@ class BehaviorManager():
 
             # If check behavior triggered sanity check
             if check_state.get('sanity_check_triggered', False):
-                interactor = getattr(interactors, level['interactor_type'])
+                interactor = level['interactor_instance']
                 method = getattr(interactor, level['method'])
-                service_args = level['service_args_func'](interactors, self.behavior_args, level['name'])
 
-                if service_args[0] is not None:
-                    # Single service call to verify current state of behavior goal
-                    result = method(*service_args, requesting_behavior=None)
-                    # Check behavior processes result and updates its own CoS input to the associated elementary behavior
-                    level['check'].process_sanity_result(result, level['check_failed_func'], level['name'])
+                if level.get('is_parallel', False):
+                    results = method(interactors, self.behavior_args, requesting_behavior=None)
+                    interactor.process_sanity_results(results, self)
+                    self._debug_print(f"Processed sanity checks for parallel behavior {level['name']} with results {results}")
 
-                    self._debug_print(f"Processed sanity check for {level['name']} with result {result}")
+                else:
+                    service_args = level['service_args_func'](interactors, self.behavior_args, level['name'])
+
+                    if service_args[0] is not None:
+                        # Single service call to verify current state of behavior goal
+                        result = method(*service_args, requesting_behavior=None)
+                        # Check behavior processes result and updates its own CoS input to the associated elementary behavior
+                        level['check'].process_sanity_result(result, level['check_failed_func'], level['name'])
+
+                        self._debug_print(f"Processed sanity check for {level['name']} with result {result}")
 
         # Process system-level CoS and CoF states
         states['system'] = self.process_system_level_nodes()
@@ -627,8 +809,8 @@ def run_behavior_manager(behaviors,
     )
 
     #print('All Fields in Behavior Manager:', behavior_seq.runtime_weights.list_all_fields())
-    #behavior_seq.runtime_weights.disable_connection('check_reach_precond_to_reach_for_intention')
-    #behavior_seq.runtime_weights.set_connection_weight('move_precond_to_check_reach_intention', -0.1)
+    # behavior_seq.runtime_weights.disable_connection('check_reach_precond_to_reach_for_intention')
+    # behavior_seq.runtime_weights.set_connection_weight('move_precond_to_check_reach_intention', -0.1)
     # behavior_seq.runtime_weights.set_field_param('move_CoS', 'self_connection_w0', 50.0)
     # behavior_seq.runtime_weights.get_field_params('move_CoS')
 
@@ -675,6 +857,7 @@ def run_behavior_manager(behaviors,
             perturbation_simulation(step, interactors)
 
         state = behavior_seq.execute_step(interactors, external_input)
+
 
         # Update logs for 3D sim
         if visualize_sim:
@@ -742,6 +925,7 @@ def run_behavior_manager(behaviors,
 # Example usage
 if __name__ == "__main__":
     behaviors = ['find', 'move', 'check_reach', 'reach_for', 'grab_transport']
+    behaviors = ['find', 'move_and_reach', 'grab_transport']
     behavior_args = {
         'target_object': 'cup',
         'drop_off_target': 'transport_target'
@@ -775,7 +959,7 @@ if __name__ == "__main__":
                          max_steps=2000,
                          debug=False,
                          visualize_sim=False,
-                         visualize_logs=True,
+                         visualize_logs=False,
                          visualize_architecture=False,
                          timing=True,
                          verbose=False)

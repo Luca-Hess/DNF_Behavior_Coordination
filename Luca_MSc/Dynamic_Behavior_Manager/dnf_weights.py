@@ -24,6 +24,8 @@ class DNFWeights:
             'behavior_internal': {},  # Connections within behaviors
             'behavior_to_precond': {},  # Behavior CoS to preconditions
             'behavior_to_check': {},  # Behavior CoS to sanity checks
+            'parallel_behavior_to_envelope': {},  # Parallel behavior to Envelope connections
+            'envelope_to_component_behavior': {},  # Envelope to component behavior connections
             'precond_to_next': {},  # Precondition to next behavior intention
             'system_level': {},  # System-level connections
             'mutual_inhibition': {}  # CoS/CoF mutual inhibition
@@ -201,9 +203,27 @@ class DNFWeights:
             'cos_to_check_intention': 5.0
         }
 
+        # Parallel behavior to Envelope connections
+        self.connection_weights['parallel_behavior_to_envelope'] = {
+            'cos_to_envelope_cos': 3.5,
+            'cof_to_envelope_cof': 4.0
+        }
+
+        # Parallel behavior envelope to behavior connections
+        self.connection_weights['envelope_to_component_behavior'] = {
+            'envelope_intention_to_component_intention': 5.0
+        }
+
         # Precondition to next behavior intention
         self.connection_weights['precond_to_next'] = {
             'precond_to_intention': -4.5
+        }
+
+        # Standard CoS and CoF transmission weights
+        self.connection_weights['cos_cof_default'] = {
+            'cos_active': 5.0,
+            'cos_failed': -5.0, # for parallel behaviors' sanity checks
+            'cof_active': 5.0
         }
 
         # System-level connections
