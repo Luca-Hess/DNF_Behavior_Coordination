@@ -212,7 +212,7 @@ def plot_logs(log, steps, behavior_chain):
                          'm--', label='CoF Activation', linewidth=2, alpha=0.7)
         axes[0, col].plot(time_steps, log[f'{behavior_name}_cof_activity'][:steps], 
                          'm-', label='CoF Activity', linewidth=2)
-        axes[0, col].set_title(f'{behavior_name.title()} - Intention & CoS', fontsize=14)
+        axes[0, col].set_title(f'{behavior_name.title()} - Intention, CoS & CoF', fontsize=14)
         axes[0, col].set_ylabel('Value', fontsize=12)
         axes[0, col].legend()
         axes[0, col].grid(True, alpha=0.3)
@@ -249,8 +249,8 @@ def plot_logs(log, steps, behavior_chain):
     system_col = num_behaviors
     
     # System CoS
-    axes[0, system_col].plot(log['steps'], log['system_cos_activation'], 'g-', linewidth=2, label='Activation')
-    axes[0, system_col].plot(log['steps'], log['system_cos_activity'], 'g--', linewidth=2, label='Activity')
+    axes[0, system_col].plot(log['steps'], log['system_cos_activation'], 'g--', linewidth=2, label='Activation')
+    axes[0, system_col].plot(log['steps'], log['system_cos_activity'], 'g-', linewidth=2, label='Activity')
     axes[0, system_col].set_title('System CoS')
     axes[0, system_col].set_xlabel('Time Steps', fontsize=12)
     axes[0, system_col].set_ylabel('Value', fontsize=12)
@@ -258,8 +258,8 @@ def plot_logs(log, steps, behavior_chain):
     axes[0, system_col].grid(True)
     
     # System CoF
-    axes[1, system_col].plot(log['steps'], log['system_cof_activation'], 'r-', linewidth=2, label='Activation')
-    axes[1, system_col].plot(log['steps'], log['system_cof_activity'], 'r--', linewidth=2, label='Activity')
+    axes[1, system_col].plot(log['steps'], log['system_cof_activation'], 'r--', linewidth=2, label='Activation')
+    axes[1, system_col].plot(log['steps'], log['system_cof_activity'], 'r-', linewidth=2, label='Activity')
     axes[1, system_col].set_title('System CoF')
     axes[1, system_col].set_xlabel('Time Steps', fontsize=12)
     axes[1, system_col].set_ylabel('Value', fontsize=12)
