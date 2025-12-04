@@ -48,7 +48,7 @@ class ParallelInteractor():
         cof = weights.connection_weights['cos_cof_default']['cof_active']
 
         for result, component_name in results:
-            base_name = behavior_manager._get_base_behavior_name(component_name)
+            base_name = behavior_manager.initializer.get_base_behavior_name(component_name)
             component_behavior = getattr(behavior_manager, f"{base_name}_behavior")
             # Update component behavior CoS based on sanity check result
             if result[0]:  # CoS check passed
