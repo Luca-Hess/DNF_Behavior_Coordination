@@ -187,10 +187,6 @@ def plot_logs(log, steps, behavior_chain):
     num_behaviors = len(behavior_chain)
     fig, axes = plt.subplots(3, num_behaviors+1, figsize=(6 * num_behaviors, 12))
     
-    # Handle single behavior case
-    if num_behaviors == 1:
-        axes = axes.reshape(-1, 1)
-    
     fig.suptitle('Behavior Chain Dynamics', fontsize=16)
     
     time_steps = list(range(steps))
