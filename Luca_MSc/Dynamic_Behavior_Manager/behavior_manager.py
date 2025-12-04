@@ -106,10 +106,23 @@ class BehaviorManager():
                 method(*service_args, requesting_behavior=level['name'])
                 self.debug_print(f"Executed continuous interaction for {active_behavior} with args {service_args}")
 
-    def advance_behavior_dynamics(self, states):
+    def advance_behavior_dynamics(self, states, collect_states=True):
         """Advance dynamics of all behaviors, handling also parallel components"""
+        if collect_states and states is None:
+            states = {}
+
+        # minimal states when not collecting all state information
+        minimal_states = {}
+
         for level in self.behavior_chain:
-            states[level['name']] = level['behavior'].execute(external_input=0.0)
+            # always executed
+            behavior_state = level['behavior'].execute(external_input=0.0)
+
+            if collect_states:
+                states[level['name']] = behavior_state
+
+            else:
+                minimal_states[level['name']] = behavior_state.get('cos_active', False)
 
             # Also advance component behaviors of parallel behaviors
             if level.get('is_parallel', False):
@@ -118,68 +131,85 @@ class BehaviorManager():
                     component_behavior = getattr(self, f"{base_name}_behavior")
                     component_behavior.execute(external_input=0.0)
 
-    def advance_precondition_dynamics(self, states):
-        states['preconditions'] = {}
+        return states if collect_states else minimal_states
+
+    def advance_precondition_dynamics(self, states, collect_states=True):
+        """Advance dynamics of all preconditions"""
+        if collect_states and states is None:
+            states = {}
+        if collect_states:
+            states['preconditions'] = {}
         for level in self.behavior_chain:
             level['precondition'].cache_prev()
             activation, activity = level['precondition']()
-            states['preconditions'][level['name']] = {
-                'activation': float(activation.detach()),
-                'activity': float(activity.detach()),
-                'active': float(activity) > 0.7
-            }
+            if collect_states:
+                states['preconditions'][level['name']] = {
+                    'activation': float(activation.detach()),
+                    'activity': float(activity.detach()),
+                    'active': float(activity) > 0.7
+                }
 
-    def check_and_process_success_actions(self, states, interactors):
+        return states
+
+    def check_and_process_success_actions(self, states, interactors, collect_states=True):
         """Check for behavior successes and process any defined success actions"""
         for level in self.behavior_chain:
             behavior_name = level['name']
+
+            if collect_states:
+                cos_active = states[behavior_name].get('cos_active', False)
+            else:
+                cos_active = states.get(behavior_name, False)
+
             if (level.get('on_success') and                             # There are "on success" actions defined
-                states[level['name']].get('cos_active', False) and      # Behavior succeeded
+                cos_active and                                          # Behavior succeeded
                 behavior_name not in self.success_actions_executed):    # Behavior "on success" action not yet executed
 
                 self.runtime_manager.process_success_actions(level['on_success'], interactors, self.behavior_args)
                 self.success_actions_executed.add(behavior_name)
                 self.debug_print(f"Processed success actions for {behavior_name}")
 
-    def process_check_behaviors(self, states, interactors):
+    def process_check_behaviors(self, states, interactors, collect_states=True):
         """
         Process all check behaviors for sanity checks.
         This includes advancing their dynamics and executing sanity checks if any are triggered.
         """
-        states['checks'] = {}
+        if collect_states and states is None:
+            states = {}
+        if collect_states:
+            states['checks'] = {}
+
         for level in self.behavior_chain:
             # Execute check behavior autonomously
             check_state = level['check'].execute(external_input=0.0)
 
-            level['check'].confidence.cache_prev()
-            conf_activation, conf_activity = level['check'].confidence()
-            confidence_activation = float(conf_activation.detach())
-            confidence_activity = float(conf_activity.detach())
+            if collect_states:
+                level['check'].confidence.cache_prev()
+                conf_activation, conf_activity = level['check'].confidence()
+                confidence_activation = float(conf_activation.detach())
+                confidence_activity = float(conf_activity.detach())
 
-            level['check'].intention.cache_prev()
-            int_activation, int_activity = level['check'].intention()
-            intention_activation = float(int_activation.detach())
-            intention_activity = float(int_activity.detach())
+                level['check'].intention.cache_prev()
+                int_activation, int_activity = level['check'].intention()
+                intention_activation = float(int_activation.detach())
+                intention_activity = float(int_activity.detach())
 
-            states['checks'][level['name']] = {
-                'confidence_activation': confidence_activation,
-                'confidence_activity': confidence_activity,
-                'intention_activation': intention_activation,
-                'intention_activity': intention_activity,
-                'sanity_check_triggered': check_state.get('sanity_check_triggered', False)
-            }
-            self.debug_print(f"Sanity check state for {level['name']}: {states['checks'][level['name']]}")
+                states['checks'][level['name']] = {
+                    'confidence_activation': confidence_activation,
+                    'confidence_activity': confidence_activity,
+                    'intention_activation': intention_activation,
+                    'intention_activity': intention_activity,
+                    'sanity_check_triggered': check_state.get('sanity_check_triggered', False)
+                }
+                self.debug_print(f"Sanity check state for {level['name']}: {states['checks'][level['name']]}")
 
-            # If check behavior triggered sanity check
             if check_state.get('sanity_check_triggered', False):
                 interactor = level['interactor_instance']
                 method = getattr(interactor, level['method'])
-
                 if level.get('is_parallel', False):
                     results = method(interactors, self.behavior_args, requesting_behavior=None)
                     interactor.process_sanity_results(results, self)
-                    self.debug_print(f"Processed sanity checks for parallel behavior {level['name']} with results {results}")
-
+                    self.debug_print(f"Santiy check state for {level['name']} with results {results}")
                 else:
                     service_args = level['service_args_func'](interactors, self.behavior_args, level['name'])
 
@@ -192,7 +222,8 @@ class BehaviorManager():
                         self.debug_print(f"Processed sanity check for {level['name']} with result {result}")
 
 
-    def execute_step(self, interactors, external_input=6.0):
+
+    def execute_step(self, interactors, external_input=6.0, track_states=False):
         """
         Execute a single step of the behavior manager.
         External input is the initial driver and currently fixed.
@@ -211,26 +242,41 @@ class BehaviorManager():
         self.system_intention(external_input)
 
         # Advance all behaviors (just processing DNF dynamics)
-        states = {}
-        self.advance_behavior_dynamics(states)
-        self.debug_print(f"Behavior states: {states}")
+        if track_states:
+            states = {}
+            states = self.advance_behavior_dynamics(states, collect_states=track_states)
+            self.debug_print(f"Behavior states: {states}")
+        else:
+            minimal_states = self.advance_behavior_dynamics(states=None, collect_states=track_states)
+            states = None
+
 
         # Process special actions upon success of behaviors
         # => Only execute once per behavior success, resets if behavior fails sanity check
-        self.check_and_process_success_actions(states, interactors)
+        if track_states:
+            self.check_and_process_success_actions(states, interactors, collect_states=track_states)
+        else:
+            self.check_and_process_success_actions(minimal_states, interactors, collect_states=track_states)
 
+        # Advance precondition and check behavior dynamics
+        if track_states:
+            states = self.advance_precondition_dynamics(states, collect_states=track_states)
+            self.debug_print(f"Precondition states: {states['preconditions']}")
 
-        # Advance precondition dynamics and add data to state
-        self.advance_precondition_dynamics(states)
-        self.debug_print(f"Precondition states: {states['preconditions']}")
-
-        # Process check behaviors - sanity checks triggered by low confidence
-        self.process_check_behaviors(states, interactors)
+            # Process check behaviors - sanity checks triggered by low confidence
+            self.process_check_behaviors(states, interactors)
+        else:
+            self.advance_precondition_dynamics(states=None, collect_states=track_states)
+            self.process_check_behaviors(states=None, interactors=interactors, collect_states=track_states)
 
         # Process system-level CoS and CoF states
-        states['system'] = self.runtime_manager.process_system_level_nodes()
+        system_states = self.runtime_manager.process_system_level_nodes()
+        if track_states:
+            states['system'] = system_states
+            return states
+        else:
+            return {'system': system_states}
 
-        return states
 
 def run_behavior_manager(behaviors,
                          behavior_args,
@@ -287,6 +333,11 @@ def run_behavior_manager(behaviors,
         visualizer = RobotSimulationVisualizer(behavior_chain=behavior_seq.behavior_chain)
         simulation_states = []
 
+    track_states = True
+    if not visualize_sim and not visualize_logs and not visualize_architecture:
+        track_states = False
+
+    #
     behavior_seq.runtime_manager.setup_subscriptions(interactors)
 
     if verbose:
@@ -301,7 +352,7 @@ def run_behavior_manager(behaviors,
         if perturbation_simulation is not None:
             perturbation_simulation(step, interactors)
 
-        state = behavior_seq.execute_step(interactors, external_input)
+        state = behavior_seq.execute_step(interactors, external_input, track_states)
 
 
         # Update logs for 3D sim
@@ -370,7 +421,7 @@ def run_behavior_manager(behaviors,
 # Example usage
 if __name__ == "__main__":
     behaviors = ['find', 'move', 'check_reach', 'reach_for', 'grab_transport']
-    behaviors = ['find', 'move_and_reach', 'grab_transport']
+    #behaviors = ['find', 'move_and_reach', 'grab_transport']
     behavior_args = {
         'target_object': 'cup',
         'drop_off_target': 'transport_target'
