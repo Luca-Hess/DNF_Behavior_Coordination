@@ -26,8 +26,10 @@ class MovementInteractor(BaseInteractor):
         self.stuck_threshold = kwargs.get('stuck_threshold', 0.01) # Minimum movement to consider "not stuck"
         self.previous_position = self.robot_position.clone()
 
-    def move_to(self, target_location, requesting_behavior=None):
+    def move_to(self, requesting_behavior=None):
         """Move method for robot movement"""
+        target_location = self._robot_interactors.state.get_behavior_target_location('move_to')
+
         failure_reason = None
 
         # For continuous calls, actually move the robot

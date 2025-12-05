@@ -11,9 +11,9 @@ class StateInteractor(BaseInteractor):
         self.gripper = gripper_interactor
 
         # Dynamic target state - populated based on behavior chain
-        self.behavior_targets = {}  # {behavior_name: current_target_name}
+        self.behavior_targets = {}  # {method: current_target_name}
         self.target_args = {}       # Store original args for reference
-        self.instance_targets = {} # {behavior_name: target_name} for instance-specific targets
+        self.instance_targets = {} # {method: target_name} for instance-specific targets
         self.global_state = {}      # Global state info if needed
 
     def initialize_from_behavior_chain(self, behavior_chain, args):
@@ -22,30 +22,30 @@ class StateInteractor(BaseInteractor):
 
         # Analyze behavior chain to determine target requirements
         for level in behavior_chain:
-            behavior_name = level['name']
             interactor_type = level.get('interactor_type')
+            method = level.get('method')
 
             # Set initial target based on behavior type and args
             if interactor_type == 'perception':
                 # Perception behaviors (like 'find') use the primary target
-                self.behavior_targets[behavior_name] = args.get('target_object')
+                self.behavior_targets[method] = args.get('target_object')
 
             elif interactor_type in ['movement', 'gripper']:
                 # Movement/gripper behaviors initially use the primary target
-                self.behavior_targets[behavior_name] = args.get('target_object')
+                self.behavior_targets[method] = args.get('target_object')
 
             elif interactor_type == 'parallel':
-                self.behavior_targets[behavior_name] = args.get('target_object')
+                self.behavior_targets[method] = args.get('target_object')
 
         return True, self.behavior_targets.copy()
 
-    def update_behavior_target(self, behavior_name, new_target_name, requesting_behavior=None):
+    def update_behavior_target(self, method, new_target_name, requesting_behavior=None):
         """Unified method to update target for a specific behavior"""
-        old_target = self.behavior_targets.get(behavior_name)
-        self.behavior_targets[behavior_name] = new_target_name
+        old_target = self.behavior_targets.get(method)
+        self.behavior_targets[method] = new_target_name
 
         state_data = {
-            'behavior_name': behavior_name,
+            'method': method,
             'old_target': old_target,
             'new_target': new_target_name
         }
@@ -57,21 +57,21 @@ class StateInteractor(BaseInteractor):
 
     def update_multiple_behavior_targets(self, target_updates):
         """Update targets for multiple behaviors at once"""
-        for behavior_name, new_target in target_updates.items():
-            if behavior_name in self.behavior_targets:
-                old_target = self.behavior_targets[behavior_name]
-                self.behavior_targets[behavior_name] = new_target
+        for method, new_target in target_updates.items():
+            if method in self.behavior_targets:
+                old_target = self.behavior_targets[method]
+                self.behavior_targets[method] = new_target
 
         return True, self.behavior_targets.copy()
 
-    def get_behavior_target_name(self, behavior_name):
+    def get_behavior_target_name(self, method):
         """Get the current target name for a behavior"""
-        target_name = self.behavior_targets.get(behavior_name)
+        target_name = self.behavior_targets.get(method)
         return target_name
 
-    def get_behavior_target_location(self, behavior_name):
+    def get_behavior_target_location(self, method):
         """Get the current target location for a behavior"""
-        target_name = self.behavior_targets.get(behavior_name)
+        target_name = self.behavior_targets.get(method)
 
         for behavior, state in self.shared_states.items():
             if 'target_name' in state and state['target_name'] == target_name:
@@ -84,9 +84,9 @@ class StateInteractor(BaseInteractor):
 
         return None
 
-    def get_behavior_target_info(self, behavior_name):
+    def get_behavior_target_info(self, method):
         """Get full target info (location, angle) for a behavior"""
-        target_name = self.behavior_targets.get(behavior_name)
+        target_name = self.behavior_targets.get(method)
 
         for behavior, state in self.shared_states.items():
             if 'target_name' in state and state['target_name'] == target_name:

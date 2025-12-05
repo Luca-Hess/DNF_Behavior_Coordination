@@ -87,7 +87,6 @@ class Initializer:
                     component_configs.append({
                         'interactor_type': single_component_config['interactor_type'],
                         'method': single_component_config['method'],
-                        'service_args_func': single_component_config['service_args_func']
                     })
                     component_behavior_names.append(component_name)
 

@@ -87,24 +87,15 @@ class BehaviorManager():
         self.debug = False
         self.success_actions_executed.clear()
 
-    def execute_active_behavior_interactors(self, active_behavior, interactors):
+    def execute_active_behavior_interactors(self, active_behavior):
         level = next(l for l in self.behavior_chain if l['name'] == active_behavior)
         interactor = level['interactor_instance']
 
         # Get method dynamically
         method = getattr(interactor, level['method'])
 
-        if level.get('is_parallel', False):
-            method(interactors, self.behavior_args, requesting_behavior=level['name'])
-
-        else:
-            # Get service args and call continuous method
-            service_args = level['service_args_func'](interactors, self.behavior_args, level['name'])
-
-            # Only call if we have valid args
-            if service_args[0] is not None:
-                method(*service_args, requesting_behavior=level['name'])
-                self.debug_print(f"Executed continuous interaction for {active_behavior} with args {service_args}")
+        method(requesting_behavior=level['name'])
+        self.debug_print(f"Executed continuous interaction for {active_behavior}")
 
     def advance_behavior_dynamics(self, states, collect_states=True):
         """Advance dynamics of all behaviors, handling also parallel components"""
@@ -206,20 +197,15 @@ class BehaviorManager():
             if check_state.get('sanity_check_triggered', False):
                 interactor = level['interactor_instance']
                 method = getattr(interactor, level['method'])
+                result = method(requesting_behavior=None)
                 if level.get('is_parallel', False):
-                    results = method(interactors, self.behavior_args, requesting_behavior=None)
-                    interactor.process_sanity_results(results, self)
-                    self.debug_print(f"Santiy check state for {level['name']} with results {results}")
+                    # Parallel interactor processes all component results
+                    interactor.process_sanity_results(result, self)
                 else:
-                    service_args = level['service_args_func'](interactors, self.behavior_args, level['name'])
+                    # Check behavior processes result and updates its own CoS input to the associated elementary behavior
+                    level['check'].process_sanity_result(result, level['check_failed_func'], level['name'])
+                self.debug_print(f"Santiy check state for {level['name']} with results {result}")
 
-                    if service_args[0] is not None:
-                        # Single service call to verify current state of behavior goal
-                        result = method(*service_args, requesting_behavior=None)
-                        # Check behavior processes result and updates its own CoS input to the associated elementary behavior
-                        level['check'].process_sanity_result(result, level['check_failed_func'], level['name'])
-
-                        self.debug_print(f"Processed sanity check for {level['name']} with result {result}")
 
 
 
@@ -236,7 +222,7 @@ class BehaviorManager():
 
         # Execute continuous world interaction for active behavior
         if active_behavior:
-            self.execute_active_behavior_interactors(active_behavior, interactors)
+            self.execute_active_behavior_interactors(active_behavior)
 
         # External input to system intention node
         self.system_intention(external_input)
@@ -421,7 +407,7 @@ def run_behavior_manager(behaviors,
 # Example usage
 if __name__ == "__main__":
     behaviors = ['find', 'move', 'check_reach', 'reach_for', 'grab_transport']
-    #behaviors = ['find', 'move_and_reach', 'grab_transport']
+    behaviors = ['find', 'move_and_reach', 'grab_transport']
     behavior_args = {
         'target_object': 'cup',
         'drop_off_target': 'transport_target'

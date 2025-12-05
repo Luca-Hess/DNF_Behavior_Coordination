@@ -29,7 +29,6 @@ class RuntimeManagement:
                     wrapped_interactors.append({
                         'interactor': actual_interactor,
                         'method': single_component_config['method'],
-                        'service_args_func': single_component_config['service_args_func']
                     })
 
                 # Creating the wrapper around the component interactors
@@ -51,9 +50,11 @@ class RuntimeManagement:
                 for i, config in enumerate(level['component_configs']):
                     interactor_type = config['interactor_type']
                     actual_interactor = getattr(interactors, interactor_type)
+                    method = config['method']
                     name = parallel_behaviors[i]['name']
                     parallel_behaviors[i].update({'interactor_type': interactor_type,
-                                                  'actual_interactor': actual_interactor})
+                                                  'actual_interactor': actual_interactor,
+                                                  'method': method})
 
                     actual_interactor.subscribe_cos_updates(
                         name, getattr(self.behavior_manager, f'{name}_behavior').set_cos_input

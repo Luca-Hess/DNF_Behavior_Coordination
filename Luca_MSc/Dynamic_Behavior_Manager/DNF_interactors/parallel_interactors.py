@@ -9,8 +9,7 @@ class ParallelInteractor():
     def __init__(self, interactors_config, parallel_behaviors):
         """
         Args:
-            interactors_config: List of dicts with 'interactor', 'method', 'service_args_func'
-            shared_target: If True, all interactors receive the same target
+            interactors_config: List of dicts with 'interactor', 'method', etc
         """
         self.interactors_config = interactors_config
         self.parallel_behaviors = parallel_behaviors
@@ -19,21 +18,16 @@ class ParallelInteractor():
         self.component_checks = []
 
 
-    def execute_parallel(self, interactors, behavior_args, requesting_behavior=None):
+    def execute_parallel(self, requesting_behavior=None):
         """Execute all wrapped interactor methods in parallel"""
         results = []
         for i, config in enumerate(self.interactors_config):
             interactor = config['interactor']
             method = getattr(interactor, config['method'])
-            base_behavior = self.parallel_behaviors[i]
+            base_name = self.parallel_behaviors[i]
 
-            service_args = config['service_args_func'](
-                interactors, behavior_args, base_behavior
-            )
-
-            if service_args[0] is not None:
-                result = method(*service_args, requesting_behavior=base_behavior if requesting_behavior else None)
-                results.append([result, base_behavior])
+            result = method(requesting_behavior=base_name if requesting_behavior else None)
+            results.append([result, base_name])
 
         return results
 
@@ -44,7 +38,6 @@ class ParallelInteractor():
         """
         weights = dnf_weights
         cos = weights.connection_weights['cos_cof_default']['cos_active']
-        cos_failed = weights.connection_weights['cos_cof_default']['cos_failed']
         cof = weights.connection_weights['cos_cof_default']['cof_active']
 
         for result, component_name in results:

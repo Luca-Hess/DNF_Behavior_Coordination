@@ -57,8 +57,10 @@ class GripperInteractor(BaseInteractor):
 
         return distance <= self.max_reach
 
-    def reach_check(self, target_name, target_location, target_orientation, requesting_behavior=None):
+    def reach_check(self, requesting_behavior=None):
         """Continuous publisher for active behaviors"""
+        target_name, target_location, _ = self._robot_interactors.state.get_behavior_target_info('reach_check')
+
 
         position = self.get_position()
         reachable = self.gripper_can_reach(target_location)
@@ -91,8 +93,10 @@ class GripperInteractor(BaseInteractor):
 
         return cos_condition, cof_condition, position
 
-    def reach_for(self, target_name, target_location, target_orientation, requesting_behavior=None):
+    def reach_for(self, requesting_behavior=None):
         """Continuous publisher for active behaviors"""
+        target_name, target_location, _ = self._robot_interactors.state.get_behavior_target_info('reach_for')
+
         motor_cmd = None
         failure_reason = None
 
@@ -128,8 +132,11 @@ class GripperInteractor(BaseInteractor):
         return cos_condition, cof_condition, position, motor_cmd
 
     ## Gripper interactors for grabbing - consists of orient, open, fine_reach, close, has_object check (as final CoS driver)
-    def grab(self, target_name, target_location, target_orientation, requesting_behavior=None):
+    def grab(self, requesting_behavior=None):
         """Continuous publisher for active behaviors - full grab sequence"""
+        target_name, target_location, target_orientation = self._robot_interactors.state.get_behavior_target_info('grab')
+
+
         motor_cmd_orient = None
         motor_cmd_reach = None
         grabbed = False

@@ -22,16 +22,18 @@ class PerceptionInteractor(BaseInteractor):
         self.in_tracking_loss = False
         self.tracking_loss_remaining = 0
 
-    def find_object(self, name, requesting_behavior=None):
+    def find_object(self, requesting_behavior=None):
         """Unified find object method - behaves differently based on requesting_behavior"""
-        target_found, location, angle, failure_reason = self._find_object_internal(name)
+        target_name = self._robot_interactors.state.get_behavior_target_name('find_object')
+
+        target_found, location, angle, failure_reason = self._find_object_internal(target_name)
 
         # Determine CoS & CoF condition
         cos_condition = target_found
         cof_condition = (failure_reason is not None)
 
         state_data = {
-            'target_name': name,
+            'target_name': target_name,
             'target_found': target_found,
             'target_location': location,
             'target_angle': angle,
