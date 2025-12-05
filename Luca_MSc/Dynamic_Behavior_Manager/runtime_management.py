@@ -22,49 +22,25 @@ class RuntimeManagement:
 
             # Creating the ParallelInteractor for parallel behaviors
             if level.get('interactor_type') == 'parallel':
-                # Build interactor
-                wrapped_interactors = []
-                for single_component_config in level['component_configs']:
-                    actual_interactor = getattr(interactors, single_component_config['interactor_type'])
-                    wrapped_interactors.append({
-                        'interactor': actual_interactor,
-                        'method': single_component_config['method'],
-                    })
+
+                # Adding actual interactor instances to each component config
+                for comp in level['component_configs']:
+                    comp['actual_interactor'] = getattr(interactors, comp['interactor_type'])
 
                 # Creating the wrapper around the component interactors
-                parallel_interactor = ParallelInteractor(
-                    wrapped_interactors,
-                    level['parallel_behaviors']
-                )
+                parallel_interactor = ParallelInteractor(level['component_configs'])
 
-                # Store wrapper like normal interactor
+                # Storing wrapper like normal interactor for behavior level
                 level['interactor_instance'] = parallel_interactor
 
                 # Sanity check handled for all component behaviors via the wrapper
                 level['check'].set_interactor(parallel_interactor)
 
-                # Additionally set the targets of the component behaviors and subscribe them to CoS & CoF update
-                parallel_behaviors = []
-                for component_name in level['parallel_behaviors']:
-                    parallel_behaviors.append({'name': component_name})
-                for i, config in enumerate(level['component_configs']):
-                    interactor_type = config['interactor_type']
-                    actual_interactor = getattr(interactors, interactor_type)
-                    method = config['method']
-                    name = parallel_behaviors[i]['name']
-                    parallel_behaviors[i].update({'interactor_type': interactor_type,
-                                                  'actual_interactor': actual_interactor,
-                                                  'method': method})
+                # Set up component CoS/CoF subscriptions
+                parallel_interactor.setup_component_subscriptions()
 
-                    actual_interactor.subscribe_cos_updates(
-                        name, getattr(self.behavior_manager, f'{name}_behavior').set_cos_input
-                    )
-
-                    actual_interactor.subscribe_cof_updates(
-                        name, getattr(self.behavior_manager, f'{name}_behavior').set_cof_input
-                    )
-
-                interactors.state.initialize_from_behavior_chain(parallel_behaviors, self.behavior_args)
+                # Initialize StateInteractor targets for the component parallel behaviors
+                interactors.state.initialize_from_behavior_chain(level['component_configs'], self.behavior_args)
 
             # Normal single, non-parallel interactors
             else:

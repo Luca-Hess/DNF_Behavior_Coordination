@@ -68,72 +68,6 @@ class Initializer:
         self._initialize_behaviors_and_checks(required_behaviors)
         self._initialize_behaviors_and_checks(parallel_component_behaviors, include_checks=False)
 
-    def resolve_behavior_config(self, behavior_name):
-        """
-        Resolve behavior configuration, including extended behaviors and parallel behaviors.
-        """
-        try:
-            # Creating a wrapper for parallel behaviors
-            if behavior_name in behavior_config.PARALLEL_BEHAVIOR_CONFIG:
-                parallel_config = behavior_config.PARALLEL_BEHAVIOR_CONFIG[behavior_name]
-
-                # Building list of component interactor configs that make up the parallel behaviors
-                # as well as the names of those behaviors
-                component_configs = []
-                component_behavior_names = []
-
-                for component_name in parallel_config['parallel_behaviors']:
-                    single_component_config = behavior_config.ELEMENTARY_BEHAVIOR_CONFIG[component_name]
-                    component_configs.append({
-                        'interactor_type': single_component_config['interactor_type'],
-                        'method': single_component_config['method'],
-                    })
-                    component_behavior_names.append(component_name)
-
-                # Storing metadata to create the Parallel Interactor with
-                return {
-                    'is_parallel': True,
-                    'component_configs': component_configs,
-                    'parallel_behaviors': component_behavior_names,
-                    'completion_strategy': parallel_config['completion_strategy'],
-
-                    'interactor_type': 'parallel',  # Special interactor type flag for "setup_subscriptions"
-                    'method': 'execute_parallel'
-                }
-
-
-            # Handling extended behaviors
-            if behavior_name in behavior_config.EXTENDED_BEHAVIOR_CONFIG:
-                extended_config = behavior_config.EXTENDED_BEHAVIOR_CONFIG[behavior_name]
-                base_name = extended_config.get('extends')
-                if base_name and base_name in behavior_config.ELEMENTARY_BEHAVIOR_CONFIG:
-                    # Merge base config with extended config
-                    config = behavior_config.ELEMENTARY_BEHAVIOR_CONFIG[base_name].copy()
-                    config.update({k: v for k, v in extended_config.items() if k != 'extends'})
-                    return config
-
-            # Handling elementary behaviors
-            if behavior_name in behavior_config.ELEMENTARY_BEHAVIOR_CONFIG:
-                return behavior_config.ELEMENTARY_BEHAVIOR_CONFIG.get(behavior_name, {})
-
-            raise ValueError(f"Unknown behavior: {behavior_name}")
-
-        except Exception as e:
-            print(f"[ERROR] Failed to resolve behavior config for {behavior_name}: {e}")
-            return {}
-
-    def get_base_behavior_name(self, behavior_name):
-        """
-        Get the base behavior name to use for potential extended behaviors.
-        Behaviors can have "supersets" that extend their functionality.
-        This function resolves to the base behavior name for initialization.
-        Example: "grab_transport" initializes the base "grab" behavior.
-        """
-        if behavior_name in behavior_config.EXTENDED_BEHAVIOR_CONFIG:
-            extended_config = behavior_config.EXTENDED_BEHAVIOR_CONFIG[behavior_name]
-            return extended_config.get('extends', behavior_name)
-        return behavior_name
-
     def _collect_required_behaviors(self, behaviors):
         """Collect all required base behaviors"""
         required_behaviors = set()
@@ -246,24 +180,98 @@ class Initializer:
 
         return system_nodes
 
+
     def build_behavior_chain(self, behaviors):
         """ Build the behavior chain with all necessary information for execution. """
 
-        # Shared structures of all behaviors
-        behavior_chain = [
-            {
-                'name': name,                                                                     # Behavior name string
-                'behavior': getattr(self.behavior_manager, f"{self.get_base_behavior_name(name)}_behavior"),      # Elementary behavior
-                'check': getattr(self.behavior_manager, f"check_{self.get_base_behavior_name(name)}"),            # Sanity check behavior
-                'precondition': getattr(self.behavior_manager, f"{self.get_base_behavior_name(name)}_precond"),   # Precondition node
-                'has_next_precondition': i < len(behaviors) - 1,                                  # Last behavior has no next precondition
-                'check_failed_func': lambda result: not result[0]                                 # State of sanity check regarding CoS
-            }
-            for i, name in enumerate(behaviors)
-        ]
+        behavior_chain = []
 
-        # Add additional behavior chain info specific to each behavior - defined in behavior_config
-        for level in behavior_chain:
-            level.update(self.resolve_behavior_config(level['name']))
+        for i, name in enumerate(behaviors):
+            base_name = self.get_base_behavior_name(name)
+            behavior_info = {
+                'name': name,
+                'behavior': getattr(self.behavior_manager, f"{base_name}_behavior"),
+                'check': getattr(self.behavior_manager, f"check_{base_name}"),
+                'precondition': getattr(self.behavior_manager, f"{base_name}_precond"),
+                'has_next_precondition': i < len(behaviors) - 1,
+                'check_failed_func': lambda result: not result[0]
+            }
+            behavior_info.update(self.resolve_behavior_config(name, base_name))
+            behavior_chain.append(behavior_info)
 
         return behavior_chain
+
+
+    def get_base_behavior_name(self, behavior_name):
+        """
+        Get the base behavior name to use for potential extended behaviors.
+        Behaviors can have "supersets" that extend their functionality.
+        This function resolves to the base behavior name for initialization.
+        Example: "grab_transport" initializes the base "grab" behavior.
+        """
+        if behavior_name in behavior_config.EXTENDED_BEHAVIOR_CONFIG:
+            extended_config = behavior_config.EXTENDED_BEHAVIOR_CONFIG[behavior_name]
+            return extended_config.get('extends', behavior_name)
+        return behavior_name
+
+
+    def resolve_behavior_config(self, behavior_name, base_name):
+        """
+        Resolve behavior configuration, including extended behaviors and parallel behaviors.
+        """
+        try:
+            # Creating a wrapper for parallel behaviors
+            if behavior_name in behavior_config.PARALLEL_BEHAVIOR_CONFIG:
+                parallel_config = behavior_config.PARALLEL_BEHAVIOR_CONFIG[behavior_name]
+
+                return self.parallel_behavior_config(parallel_config)
+
+            # Handling extended behaviors
+            if behavior_name in behavior_config.EXTENDED_BEHAVIOR_CONFIG:
+                extended_config = behavior_config.EXTENDED_BEHAVIOR_CONFIG[behavior_name]
+                if base_name in behavior_config.ELEMENTARY_BEHAVIOR_CONFIG:
+                    # Merge base config with extended config
+                    config = behavior_config.ELEMENTARY_BEHAVIOR_CONFIG[base_name].copy()
+                    config.update({k: v for k, v in extended_config.items() if k != 'extends'})
+                    return config
+
+            # Handling elementary behaviors
+            if behavior_name in behavior_config.ELEMENTARY_BEHAVIOR_CONFIG:
+                return behavior_config.ELEMENTARY_BEHAVIOR_CONFIG.get(behavior_name, {})
+
+            raise ValueError(f"Unknown behavior: {behavior_name}")
+
+        except Exception as e:
+            print(f"[ERROR] Failed to resolve behavior config for {behavior_name}: {e}")
+            return {}
+
+    def parallel_behavior_config(self, parallel_config):
+        """
+        Building list of component interactor configs that make up the parallel behaviors
+        as well as the names of those behaviors
+        """
+
+        component_configs = []
+        component_behavior_names = []
+
+        for component_name in parallel_config['parallel_behaviors']:
+            base_name = self.get_base_behavior_name(component_name)
+            single_component_config = behavior_config.ELEMENTARY_BEHAVIOR_CONFIG[component_name]
+            component_configs.append({
+                'name': component_name,
+                'base_name': base_name,
+                'behavior_instance': getattr(self.behavior_manager, f"{base_name}_behavior"),
+                'interactor_type': single_component_config['interactor_type'],
+                'method': single_component_config['method'],
+            })
+            component_behavior_names.append(component_name)
+
+        # Storing metadata to create the Parallel Interactor with
+        return {
+            'is_parallel': True,
+            'component_configs': component_configs,
+            'parallel_behaviors': component_behavior_names,
+            'completion_strategy': parallel_config['completion_strategy'],
+            'interactor_type': 'parallel',  # Special interactor type flag for "setup_subscriptions"
+            'method': 'execute_parallel'  # Special method for parallel execution
+        }

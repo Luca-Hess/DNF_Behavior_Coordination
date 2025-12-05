@@ -6,13 +6,12 @@ class ParallelInteractor():
     Wraps multiple interactors to execute their methods in parallel.
     Presents a unified interface that looks like a single interactor.
     """
-    def __init__(self, interactors_config, parallel_behaviors):
+    def __init__(self, component_configs):
         """
         Args:
             interactors_config: List of dicts with 'interactor', 'method', etc
         """
-        self.interactors_config = interactors_config
-        self.parallel_behaviors = parallel_behaviors
+        self.components = component_configs
         self.cos_callbacks = []
         self.cof_callbacks = []
         self.component_checks = []
@@ -21,13 +20,11 @@ class ParallelInteractor():
     def execute_parallel(self, requesting_behavior=None):
         """Execute all wrapped interactor methods in parallel"""
         results = []
-        for i, config in enumerate(self.interactors_config):
-            interactor = config['interactor']
-            method = getattr(interactor, config['method'])
-            base_name = self.parallel_behaviors[i]
+        for comp in self.components:
+            method = getattr(comp['actual_interactor'], comp['method'])
 
-            result = method(requesting_behavior=base_name if requesting_behavior else None)
-            results.append([result, base_name])
+            result = method(requesting_behavior=comp['name'] if requesting_behavior else None)
+            results.append((result, comp))
 
         return results
 
@@ -40,36 +37,22 @@ class ParallelInteractor():
         cos = weights.connection_weights['cos_cof_default']['cos_active']
         cof = weights.connection_weights['cos_cof_default']['cof_active']
 
-        for result, component_name in results:
-            base_name = behavior_manager.initializer.get_base_behavior_name(component_name)
-            component_behavior = getattr(behavior_manager, f"{base_name}_behavior")
+        for result, comp in results:
+            behavior = comp['behavior_instance']
             # Update component behavior CoS based on sanity check result
-            if result[0]:  # CoS check passed
-                component_behavior.set_cos_input(cos)
-            else:  # Failure
-                component_behavior.set_cos_input(0)
+            behavior.set_cos_input(cos if result[0] else 0.0) # CoS passed
 
             if result[1]:  # CoF reached
-                component_behavior.set_cof_input(cof)
+                behavior.set_cof_input(cof)
 
+    def setup_component_subscriptions(self):
+        """Setup CoS and CoF subscriptions for all component behaviors"""
+        for comp in self.components:
+            interactor = comp['actual_interactor']
+            behavior = comp['behavior_instance']
 
-    def subscribe_cos_updates(self, behavior_name, callback):
-        """Subscribe to CoS updates from ALL wrapped interactors"""
-        for config in self.interactors_config:
-            interactor = config['interactor']
-            # Each interactor calls the SAME callback (aggregated via DNF)
-            interactor.subscribe_cos_updates(behavior_name, callback)
+            # Subscribe to CoS updates
+            interactor.subscribe_cos_updates(comp['name'], behavior.set_cos_input)
+            # Subscribe to CoF updates
+            interactor.subscribe_cof_updates(comp['name'], behavior.set_cof_input)
 
-    def subscribe_cof_updates(self, behavior_name, callback):
-        """Subscribe to CoF updates from ALL wrapped interactors"""
-        for config in self.interactors_config:
-            interactor = config['interactor']
-            interactor.subscribe_cof_updates(behavior_name, callback)
-
-    def set_check_behaviors(self, check_behaviors):
-        """Set component sanity check functions for each interactor"""
-        self.component_checks = check_behaviors
-
-    def get_check_behaviors(self):
-        """Get the list of component sanity check functions"""
-        return self.component_checks

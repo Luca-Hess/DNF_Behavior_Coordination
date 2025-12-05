@@ -35,7 +35,7 @@ class StateInteractor(BaseInteractor):
                 self.behavior_targets[method] = args.get('target_object')
 
             elif interactor_type == 'parallel':
-                self.behavior_targets[method] = args.get('target_object')
+                continue  # Parallel behaviors handled separately
 
         return True, self.behavior_targets.copy()
 
