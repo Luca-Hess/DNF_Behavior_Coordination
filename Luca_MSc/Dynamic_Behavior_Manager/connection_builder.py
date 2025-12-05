@@ -49,9 +49,9 @@ class ConnectionBuilder:
         """Setup connections for parallel behavior components to envelope behavior"""
         behavior_name = level['name']
 
-        for component_name in level['parallel_behaviors']:
-            base_name = self.initializer.get_base_behavior_name(component_name)
-            component_behavior = getattr(self.behavior_manager, f"{base_name}_behavior")
+        for component_config in level['component_configs']:
+            base_name = component_config['name']
+            component_behavior = component_config['behavior_instance']
 
             # Component CoS to Envelope CoS (logic based on completion strategy)
             # any => OR, all => AND (weights are reduced based on number of component behaviors)

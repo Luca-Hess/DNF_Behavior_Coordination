@@ -63,7 +63,6 @@ class Initializer:
         # Create and register system-level nodes
         self._initialize_system_level_nodes()
 
-
         # Initialize behaviors and their nodes + their sanity checks
         self._initialize_behaviors_and_checks(required_behaviors)
         self._initialize_behaviors_and_checks(parallel_component_behaviors, include_checks=False)
@@ -92,6 +91,11 @@ class Initializer:
 
         return parallel_component_behaviors
 
+    def _register_and_set_field(self, field, attr_name, category, node_type, **kwargs):
+        """Register field with runtime weights and set as behavior manager attribute"""
+        self.runtime_weights.register_field(field, category=category, node_type=node_type, **kwargs)
+        setattr(self.behavior_manager, attr_name, field)
+
     def _initialize_preconditions(self, required_behaviors):
         """Create and register precondition nodes for all behaviors"""
         default_params = self.weights.get_field_params('precondition_nodes', 'default')
@@ -101,15 +105,14 @@ class Initializer:
 
         # Register precondition nodes with runtime weights manager
         for name in required_behaviors:
-            precond_field = preconditions[f"{name}_precond"]
-            self.runtime_weights.register_field(
-                precond_field,
+            self._register_and_set_field(
+                field=preconditions[f"{name}_precond"],
+                attr_name=f'{name}_precond',
                 category='precondition_nodes',
                 node_type='precondition',
                 behavior_name=name,
                 instance_id=f'{name}_precond'
             )
-            setattr(self.behavior_manager, f'{name}_precond', precond_field)
 
     def _initialize_system_level_nodes(self):
         """Create and register system-level nodes"""
@@ -117,14 +120,14 @@ class Initializer:
 
         # Register system-level nodes with runtime weights manager
         for node_name, field in system_level_nodes.items():
-            node_type = node_name.replace('_system', '')
-            self.runtime_weights.register_field(
-                field,
+            node_type = f'system_{node_name.replace('_system', '')}'
+            self._register_and_set_field(
+                field=field,
+                attr_name=node_type,
                 category='system_nodes',
                 node_type=node_type,
                 instance_id=node_name
             )
-            setattr(self.behavior_manager, f'system_{node_type}', field)
 
     def _initialize_behaviors_and_checks(self, required_behaviors, include_checks=True):
 
@@ -142,26 +145,40 @@ class Initializer:
     def _register_behavior_nodes(self, behavior_name):
         """Register all nodes for a single behavior with runtime weights manager"""
         behavior = getattr(self.behavior_manager, f"{behavior_name}_behavior")
-        check = getattr(self.behavior_manager, f"check_{behavior_name}") if hasattr(self.behavior_manager, f"check_{behavior_name}") else None
+        check = getattr(self.behavior_manager, f"check_{behavior_name}") \
+            if hasattr(self.behavior_manager, f"check_{behavior_name}") else None
+
+        # Node registration scheme
+        NODE_SCHEMA = [
+            ('intention', 'behavior_nodes', behavior),
+            ('CoS', 'behavior_nodes', behavior),
+            ('CoS_inverter', 'behavior_nodes', behavior),
+            ('CoF', 'behavior_nodes', behavior)
+        ]
 
         # Register behavior nodes
-        for node_type in ['intention', 'CoS', 'CoS_inverter', 'CoF']:
-            field = getattr(behavior, node_type)
+        for node_type, category, obj in NODE_SCHEMA:
+            field = getattr(obj, node_type)
             self.runtime_weights.register_field(
                 field,
-                category='behavior_nodes',
+                category=category,
                 node_type=node_type,
                 behavior_name=behavior_name,
                 instance_id=f'{behavior_name}_{node_type}'
             )
 
         if check is not None:
+            CHECK_SCHEMA = [
+                ('intention', 'check_nodes'),
+                ('confidence', 'check_nodes')
+            ]
+
             # Register check nodes
-            for node_type in ['intention', 'confidence']:
+            for node_type, category in CHECK_SCHEMA:
                 field = getattr(check, node_type)
                 self.runtime_weights.register_field(
                     field,
-                    category='check_nodes',
+                    category=category,
                     node_type=node_type,
                     behavior_name=behavior_name,
                     instance_id=f'check_{behavior_name}_{node_type}'
@@ -185,11 +202,13 @@ class Initializer:
         """ Build the behavior chain with all necessary information for execution. """
 
         behavior_chain = []
+        self._behavior_lookup = {}
 
         for i, name in enumerate(behaviors):
             base_name = self.get_base_behavior_name(name)
             behavior_info = {
                 'name': name,
+                'base_name': base_name,
                 'behavior': getattr(self.behavior_manager, f"{base_name}_behavior"),
                 'check': getattr(self.behavior_manager, f"check_{base_name}"),
                 'precondition': getattr(self.behavior_manager, f"{base_name}_precond"),
@@ -198,6 +217,7 @@ class Initializer:
             }
             behavior_info.update(self.resolve_behavior_config(name, base_name))
             behavior_chain.append(behavior_info)
+            self._behavior_lookup[name] = behavior_info
 
         return behavior_chain
 
