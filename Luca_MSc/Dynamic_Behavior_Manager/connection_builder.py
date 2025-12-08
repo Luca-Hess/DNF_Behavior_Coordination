@@ -9,7 +9,69 @@ class ConnectionBuilder:
         self.behavior_args = behavior_manager.behavior_args
         self.behavior_chain = behavior_manager.behavior_chain
 
+        # Defining connection schema to automate repetitive connection patterns
+        self.CONNECTION_SCHEMA = {
+            'standard_behavior': [
+                # Source Node,     Target Node,     Weight Category,     Weight Key,     Connection Type
+                ('behavior.CoS', 'precondition', 'behavior_to_precond', 'cos_to_precond', 'cos_to_precond'),
+                ('behavior.CoS', 'check.intention', 'behavior_to_check', 'cos_to_check_intention', 'cos_to_check_intention'),
+            ],
+            'system_to_behavior': [
+                ('system_intention', 'precondition', 'system_level', 'intention_to_precond', 'system_intention_to_precond'),
+                ('system_intention', 'behavior.intention', 'system_level', 'intention_to_behavior', 'system_intention_to_behavior'),
+            ],
+            'behavior_to_system': [
+                ('behavior.CoS_inverter', 'system_cos_reporter', 'system_level', 'cos_inverter_to_reporter', 'cos_inverter_to_reporter'),
+                ('behavior.CoF', 'system_cof', 'system_level', 'behavior_cof_to_system_cof', 'behavior_cof_to_system_cof'),
+            ]
+        }
 
+    def _apply_connection_schema(self, schema_name, level, behavior_name=None):
+        """Apply predefined connection schema to a behavior level"""
+        for source_path, target_path, weight_category, weight_key, connection_type in (
+                self.CONNECTION_SCHEMA)[schema_name]:
+            source_field = self._resolve_field_path(source_path, level, behavior_name)
+            target_field = self._resolve_field_path(target_path, level, behavior_name)
+
+            weight = self.weights.get_connection_weight(weight_category, weight_key)
+
+            source_id = self._get_field_id(source_path, behavior_name or level['name'])
+            target_id = self._get_field_id(target_path, behavior_name or level['name'])
+
+            self._register_and_connect(
+                source_field,
+                target_field,
+                weight,
+                source_id,
+                target_id,
+                connection_type
+            )
+
+    def _resolve_field_path(self, path, level, behavior_name=None):
+        """Resolve field path string to actual field object"""
+        parts = path.split('.')
+
+        # Handling system level nodes specially
+        if parts[0].startswith('system_'):
+            return getattr(self.behavior_manager, parts[0])
+
+        # Handling behavior level nodes
+        field = level
+        for part in parts:
+            field = field[part] if isinstance(field, dict) else getattr(field, part)
+        return field
+
+    def _get_field_id(self, path, behavior_name):
+        """Generate unique field ID based on path and behavior name"""
+        parts = path.split('.')
+        if parts[0].startswith('system_'):
+            return parts[0]
+        elif parts[0] == 'behavior':
+            return f"{behavior_name}_{parts[-1].lower()}"
+        elif parts[0] == 'check':
+            return f"check_{behavior_name}_{parts[-1].lower()}"
+        else:
+            return f"{behavior_name}_{parts[0]}"
 
 
     def setup_connections(self):
@@ -22,7 +84,7 @@ class ConnectionBuilder:
                 self._setup_parallel_behavior_connections(level, w)
 
             # Standard connections for all behaviors
-            self._setup_standard_behavior_connections(level, w)
+            self._setup_standard_behavior_connections(level)
 
             # Preconditions to the next behavior's intention where applicable
             if level.get('has_next_precondition', False) and i + 1 < len(self.behavior_chain):
@@ -90,32 +152,9 @@ class ConnectionBuilder:
                 'envelope_intention_to_component_intention'
             )
 
-    def _setup_standard_behavior_connections(self, level, weights):
+    def _setup_standard_behavior_connections(self, level):
         """Setup standard connections for a single behavior"""
-        behavior_name = level['name']
-
-        # CoS to precondition
-        weight = weights.get_connection_weight('behavior_to_precond', 'cos_to_precond')
-
-        self._register_and_connect(
-            level['behavior'].CoS,
-            level['precondition'],
-            weight,
-            f'{behavior_name}_cos',
-            f'{behavior_name}_precond',
-            'cos_to_precond'
-        )
-
-        # CoS to check
-        weight = weights.get_connection_weight('behavior_to_check', 'cos_to_check_intention')
-        self._register_and_connect(
-            level['behavior'].CoS,
-            level['check'].intention,
-            weight,
-            f'{behavior_name}_cos',
-            f'check_{behavior_name}_intention',
-            'cos_to_check_intention'
-        )
+        self._apply_connection_schema('standard_behavior', level)
 
 
     def _setup_precondition_connections(self, level, next_level, weights):
@@ -135,54 +174,9 @@ class ConnectionBuilder:
 
     def _setup_system_level_connections(self, weights):
         """Setup connections between behavior and system levels as well as within system level"""
-
         for level in self.behavior_chain:
-            behavior_name = level['name']
-
-            # System Intention activates preconditions and behavior intention
-            # (which inhibit their respective behavior intentions until CoS is achieved)
-            weight = weights.get_connection_weight('system_level', 'intention_to_precond')
-            self._register_and_connect(
-                self.behavior_manager.system_intention,
-                level['precondition'],
-                weight,
-                'intention_system',
-                f'{behavior_name}_precond',
-                'system_intention_to_precond'
-            )
-
-            weight = weights.get_connection_weight('system_level', 'intention_to_behavior')
-            self._register_and_connect(
-                self.behavior_manager.system_intention,
-                level['behavior'].intention,
-                weight,
-                'intention_system',
-                f'{behavior_name}_intention',
-                'system_intention_to_behavior'
-            )
-
-            # System CoS Reporter: Inverted CoS from all behaviors (OR logic)
-            # Any activity in CoS inverters will inhibit reporter
-            weight = weights.get_connection_weight('system_level', 'cos_inverter_to_reporter')
-            self._register_and_connect(
-                level['behavior'].CoS_inverter,
-                self.behavior_manager.system_cos_reporter,
-                weight,
-                f'{behavior_name}_cos_inverter',
-                'cos_reporter_system',
-                'cos_inverter_to_reporter'
-            )
-
-            # System CoF: ANY behavior CoF can trigger system failure (OR logic)
-            weight = weights.get_connection_weight('system_level', 'behavior_cof_to_system_cof')
-            self._register_and_connect(
-                level['behavior'].CoF,
-                self.behavior_manager.system_cof,
-                weight,
-                f'{behavior_name}_cof',
-                'cof_system',
-                'behavior_cof_to_system_cof'
-            )
+            self._apply_connection_schema('system_to_behavior', level)
+            self._apply_connection_schema('behavior_to_system', level)
 
         # System CoS: Requires ALL behavior CoS nodes to be active (AND logic)
         # Achieved via inverted CoS connections to reporter, then reporter to system CoS
@@ -197,21 +191,21 @@ class ConnectionBuilder:
         )
 
         # Make System CoS and CoF mutually exclusive (high inhibitory weights)
-        weight = weights.get_connection_weight('mutual_inhibition', 'system_cos_to_cof')
-        self.behavior_manager.system_cos.connection_to(self.behavior_manager.system_cof, weight)
-        self.behavior_manager.system_cof.connection_to(self.behavior_manager.system_cos, weight)
-        self.runtime_weights.register_connection(
+        weight_cos_cof = weights.get_connection_weight('mutual_inhibition', 'system_cos_to_cof')
+        weight_cof_cos = weights.get_connection_weight('mutual_inhibition', 'system_cof_to_cos')
+
+        self._register_and_connect(
             self.behavior_manager.system_cos,
             self.behavior_manager.system_cof,
-            weight,
+            weight_cof_cos,
             'cos_system',
             'cof_system',
             'system_cos_to_cof'
         )
-        self.runtime_weights.register_connection(
+        self._register_and_connect(
             self.behavior_manager.system_cof,
             self.behavior_manager.system_cos,
-            weight,
+            weight_cof_cos,
             'cof_system',
             'cos_system',
             'system_cof_to_cos'

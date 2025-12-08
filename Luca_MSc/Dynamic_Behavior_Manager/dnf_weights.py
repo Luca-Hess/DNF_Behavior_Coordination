@@ -132,7 +132,7 @@ class DNFWeights:
             'shape': (),
             'time_step': 5.0,
             'time_scale': 100.0,
-            'resting_level': 1.0,
+            'resting_level': 1.0, # Inverter starts active
             'beta': 100.0,
             'self_connection_w0': 1.0,
             'noise_strength': 0.0,
