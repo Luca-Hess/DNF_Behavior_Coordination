@@ -26,22 +26,27 @@ ELEMENTARY_BEHAVIOR_CONFIG = {
     'find': {
             'interactor_type': 'perception',
             'method': 'find_object',
+            'required_args': ['target_object'],
     },
    'move':{
             'interactor_type': 'movement',
             'method': 'move_to',
-    },
+            'required_args': ['target_object'],
+   },
     'check_reach':{
             'interactor_type': 'gripper',
             'method': 'reach_check',
+            'required_args': ['target_object'],
     },
     'reach_for':{
             'interactor_type': 'gripper',
             'method': 'reach_for',
+            'required_args': ['target_object'],
     },
     'grab':{
             'interactor_type': 'gripper',
             'method': 'grab',
+            'required_args': ['target_object'],
     }
 }
 
@@ -69,6 +74,7 @@ ACTION_BEHAVIOR_CONFIG = {
 EXTENDED_BEHAVIOR_CONFIG = {
     'grab_transport': {
         'extends': 'grab',  # Inherit from base grab behavior
+        'required_args': ['drop_off_target'],
         'on_success': [
             {
                 'action': 'update_movement_target',

@@ -295,3 +295,39 @@ class Initializer:
             'interactor_type': 'parallel',  # Special interactor type flag for "setup_subscriptions"
             'method': 'execute_parallel'  # Special method for parallel execution
         }
+
+    def validate_behavior_args(self, beh_chain, behavior_args):
+        """
+        Validate that all required arguments are provided for behaviors in the chain.
+
+        Args:
+            behavior_chain: List of behavior level dictionaries
+            behavior_args: Dictionary of arguments passed to behaviors
+
+        Returns:
+            tuple: (is_valid, error_message)
+        """
+        missing_args = []
+
+        for level in beh_chain:
+            behavior_name = level['name']
+
+            # Check elementary behaviors
+            if behavior_name in behavior_config.ELEMENTARY_BEHAVIOR_CONFIG:
+                required = behavior_config.ELEMENTARY_BEHAVIOR_CONFIG[behavior_name].get('required_args', [])
+                for arg in required:
+                    if arg not in behavior_args:
+                        missing_args.append(f"{behavior_name} requires '{arg}'")
+
+            # Check extended behaviors
+            if behavior_name in behavior_config.EXTENDED_BEHAVIOR_CONFIG:
+                required = behavior_config.EXTENDED_BEHAVIOR_CONFIG[behavior_name].get('required_args', [])
+                for arg in required:
+                    if arg not in behavior_args:
+                        missing_args.append(f"{behavior_name} requires '{arg}'")
+
+        if missing_args:
+            error_msg = "Missing required arguments:\n" + "\n".join(f"  - {msg}" for msg in missing_args)
+            return False, error_msg
+
+        return True, None

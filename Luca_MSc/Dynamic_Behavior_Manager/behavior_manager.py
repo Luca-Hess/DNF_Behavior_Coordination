@@ -51,14 +51,17 @@ class BehaviorManager():
         # Build behavior chain data structure
         self.behavior_chain = self.initializer.build_behavior_chain(behaviors)
 
+        # Validate if all required arguments are provided for behaviors
+        is_valid, error = self.initializer.validate_behavior_args(self.behavior_chain, self.behavior_args)
+        if not is_valid:
+            raise ValueError(f"Behavior args validation error: {error}")
+
         # Keep track of which success actions have been executed
         self.success_actions_executed = set()
-
 
         # Setup DNF node connections according to behavior chain (internal and external connections)
         self.connection_builder = ConnectionBuilder(self)
         self.connection_builder.setup_connections()
-
 
         # Handle run-time setup and processing
         self.runtime_manager = RuntimeManagement(self)
