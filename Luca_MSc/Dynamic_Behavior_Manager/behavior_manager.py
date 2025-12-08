@@ -94,7 +94,7 @@ class BehaviorManager():
         # Get method dynamically
         method = getattr(level['interactor_instance'], level['method'])
 
-        method(requesting_behavior=level['name'])
+        method(continuous_behavior=level['name'])
         self.debug_print(f"Executed continuous interaction for {active_behavior}")
 
     def advance_behavior_dynamics(self, collector):
@@ -183,7 +183,7 @@ class BehaviorManager():
 
             if sanity_triggered:
                 method = getattr(level['interactor_instance'], level['method'])
-                result = method(requesting_behavior=None)
+                result = method(continuous_behavior=None)
 
                 if level.get('is_parallel', False):
                     # Parallel interactor processes all component results
@@ -416,7 +416,7 @@ if __name__ == "__main__":
                          debug=False,
                          visualize_sim=False,
                          visualize_logs=True,
-                         visualize_architecture=False,
+                         visualize_architecture=True,
                          timing=True,
                          verbose=False)
 

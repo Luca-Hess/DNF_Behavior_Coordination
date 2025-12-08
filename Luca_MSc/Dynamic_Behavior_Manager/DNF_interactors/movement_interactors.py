@@ -26,14 +26,14 @@ class MovementInteractor(BaseInteractor):
         self.stuck_threshold = kwargs.get('stuck_threshold', 0.01) # Minimum movement to consider "not stuck"
         self.previous_position = self.robot_position.clone()
 
-    def move_to(self, requesting_behavior=None):
+    def move_to(self, continuous_behavior=None):
         """Move method for robot movement"""
         target_location = self._robot_interactors.state.get_behavior_target_location('move_to')
 
         failure_reason = None
 
         # For continuous calls, actually move the robot
-        if requesting_behavior:
+        if continuous_behavior:
             self.move_towards(target_location)
             self.move_attempts += 1
 
@@ -66,7 +66,7 @@ class MovementInteractor(BaseInteractor):
         }
 
         # Use base class helper for state management and publishing
-        self._update_and_publish_state(state_data, arrived, cof_condition, requesting_behavior)
+        self._update_and_publish_state(state_data, arrived, cof_condition, continuous_behavior)
 
         return cos_condition, cof_condition, position
 

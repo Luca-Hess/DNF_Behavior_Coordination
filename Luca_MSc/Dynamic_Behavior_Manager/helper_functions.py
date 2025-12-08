@@ -401,7 +401,7 @@ def animate_fixed_chain(log, behavior_chain, clean=True):
             G.add_node(f"{bname}_intention", activity=intention_activity, label='I')
             G.add_node(f"{bname}_cos", activity=cos_activity, label='CoS')
             G.add_node(f"{bname}_cof", activity=cof_activity, label='CoF')
-            G.add_node(f"{bname}_precond", activity=precond_activity, label='Precond.')
+            G.add_node(f"{bname}_precond", activity=precond_activity, label='P')
             G.add_node(f"{bname}_elementary", activity=intention_activity,
                        label=f'{bname}')
 
@@ -540,10 +540,6 @@ def animate_fixed_chain(log, behavior_chain, clean=True):
                 color = get_node_color(activity, threshold=0.7)
                 radius = 0.45
                 shape = 'ellipse'
-            elif "_precond" in node:
-                radius = 0.6
-                shape = 'ellipse'
-                color = get_node_color(activity, threshold=0.5)
             else:
                 color = get_node_color(activity, threshold=0.1)
                 shape = 'circle'

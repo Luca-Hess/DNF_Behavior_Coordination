@@ -39,7 +39,7 @@ class StateInteractor(BaseInteractor):
 
         return True, self.behavior_targets.copy()
 
-    def update_behavior_target(self, method, new_target_name, requesting_behavior=None):
+    def update_behavior_target(self, method, new_target_name, continuous_behavior=None):
         """Unified method to update target for a specific behavior"""
         old_target = self.behavior_targets.get(method)
         self.behavior_targets[method] = new_target_name
@@ -51,7 +51,7 @@ class StateInteractor(BaseInteractor):
         }
 
         success = True
-        self._update_and_publish_state(state_data, success, requesting_behavior)
+        self._update_and_publish_state(state_data, success, continuous_behavior)
 
         return success, new_target_name
 

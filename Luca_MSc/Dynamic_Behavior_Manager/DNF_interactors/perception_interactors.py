@@ -22,8 +22,8 @@ class PerceptionInteractor(BaseInteractor):
         self.in_tracking_loss = False
         self.tracking_loss_remaining = 0
 
-    def find_object(self, requesting_behavior=None):
-        """Unified find object method - behaves differently based on requesting_behavior"""
+    def find_object(self, continuous_behavior=None):
+        """Unified find object method - behaves differently based on continuous_behavior"""
         target_name = self._robot_interactors.state.get_behavior_target_name('find_object')
 
         target_found, location, angle, failure_reason = self._find_object_internal(target_name)
@@ -41,7 +41,7 @@ class PerceptionInteractor(BaseInteractor):
         }
 
         # Use base class helper for state management and publishing
-        self._update_and_publish_state(state_data, target_found, cof_condition, requesting_behavior)
+        self._update_and_publish_state(state_data, target_found, cof_condition, continuous_behavior)
 
         return cos_condition, cof_condition, location, angle
 

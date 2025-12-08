@@ -17,13 +17,13 @@ class ParallelInteractor():
         self.component_checks = []
 
 
-    def execute_parallel(self, requesting_behavior=None):
+    def execute_parallel(self, continuous_behavior=None):
         """Execute all wrapped interactor methods in parallel"""
         results = []
         for comp in self.components:
             method = getattr(comp['actual_interactor'], comp['method'])
 
-            result = method(requesting_behavior=comp['name'] if requesting_behavior else None)
+            result = method(continuous_behavior=comp['name'] if continuous_behavior else None)
             results.append((result, comp))
 
         return results

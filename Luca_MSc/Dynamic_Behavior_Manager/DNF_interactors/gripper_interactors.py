@@ -57,7 +57,7 @@ class GripperInteractor(BaseInteractor):
 
         return distance <= self.max_reach
 
-    def reach_check(self, requesting_behavior=None):
+    def reach_check(self, continuous_behavior=None):
         """Continuous publisher for active behaviors"""
         target_name, target_location, _ = self._robot_interactors.state.get_behavior_target_info('reach_check')
 
@@ -74,7 +74,7 @@ class GripperInteractor(BaseInteractor):
         distance = float(torch.norm(target_location - self.gripper_position)) if target_location is not None else float(
             'inf')
 
-        if not requesting_behavior:
+        if not continuous_behavior:
             if self.is_target_grabbed(target_name):
                 reachable = True
                 distance = 0.0
@@ -89,11 +89,11 @@ class GripperInteractor(BaseInteractor):
             'failure_reason': failure_reason
         }
 
-        self._update_and_publish_state(state_data, reachable, cof_condition, requesting_behavior)
+        self._update_and_publish_state(state_data, reachable, cof_condition, continuous_behavior)
 
         return cos_condition, cof_condition, position
 
-    def reach_for(self, requesting_behavior=None):
+    def reach_for(self, continuous_behavior=None):
         """Continuous publisher for active behaviors"""
         target_name, target_location, _ = self._robot_interactors.state.get_behavior_target_info('reach_for')
 
@@ -104,7 +104,7 @@ class GripperInteractor(BaseInteractor):
             target_location = self.gripper_position.clone()
 
         # For continous calls, actually move the gripper
-        if requesting_behavior and target_location is not None:
+        if continuous_behavior and target_location is not None:
             if not self.gripper_can_reach(target_location) and target_location[2] > self.max_reach:
                 failure_reason = f"Target location {target_location} is out of gripper reach (max {self.max_reach})."
             else:
@@ -127,12 +127,12 @@ class GripperInteractor(BaseInteractor):
             'failure_reason': failure_reason
         }
 
-        self._update_and_publish_state(state_data, at_target, cof_condition, requesting_behavior)
+        self._update_and_publish_state(state_data, at_target, cof_condition, continuous_behavior)
 
         return cos_condition, cof_condition, position, motor_cmd
 
     ## Gripper interactors for grabbing - consists of orient, open, fine_reach, close, has_object check (as final CoS driver)
-    def grab(self, requesting_behavior=None):
+    def grab(self, continuous_behavior=None):
         """Continuous publisher for active behaviors - full grab sequence"""
         target_name, target_location, target_orientation = self._robot_interactors.state.get_behavior_target_info('grab')
 
@@ -143,7 +143,7 @@ class GripperInteractor(BaseInteractor):
         failure_reason = None
 
         # For continuous calls, execute grab sequence stepwise
-        if requesting_behavior:
+        if continuous_behavior:
             if not self.gripper_can_reach(target_location):
                 failure_reason = f"Target location {target_location} is out of gripper reach (max {self.max_reach})."
             else:
@@ -207,7 +207,7 @@ class GripperInteractor(BaseInteractor):
         }
 
         # Update shared state with final grab result
-        self._update_and_publish_state(state_data, grabbed, cof_condition, requesting_behavior)
+        self._update_and_publish_state(state_data, grabbed, cof_condition, continuous_behavior)
 
         return cos_condition, cof_condition, self.get_position(), motor_cmd_orient, motor_cmd_reach
 
