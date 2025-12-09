@@ -97,7 +97,9 @@ class BehaviorManager():
         # Get method dynamically
         method = getattr(level['interactor_instance'], level['method'])
 
+        # Execute method associated with active behavior continuously (while active)
         method(continuous_behavior=level['name'])
+
         self.debug_print(f"Executed continuous interaction for {active_behavior}")
 
     def advance_behavior_dynamics(self, collector):
@@ -330,6 +332,13 @@ def run_behavior_manager(behaviors,
             update_log(log, state, step, behavior_seq.behavior_chain)
 
         if state.get('system', {}).get('system_success', False):
+            # Verify that robot is at target location to check false positives
+            robot_pos = interactors.movement.get_position()
+            target_loc = interactors.perception.objects[behavior_args['drop_off_target']]['location']
+            if torch.norm(robot_pos[:2] - target_loc[:2]) > interactors.movement.stop_threshold:
+                state['system']['system_success'] = False
+                print("[WARN] System reported success but robot is not at target location.")
+                break
             if verbose:
                 print(f"[INFO] Behavior sequence completed successfully in {step} steps.")
             break
@@ -419,7 +428,7 @@ if __name__ == "__main__":
                          debug=False,
                          visualize_sim=False,
                          visualize_logs=True,
-                         visualize_architecture=True,
+                         visualize_architecture=False,
                          timing=True,
                          verbose=False)
 

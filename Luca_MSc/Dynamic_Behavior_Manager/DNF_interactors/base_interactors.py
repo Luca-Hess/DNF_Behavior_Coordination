@@ -42,16 +42,14 @@ class BaseInteractor:
         cof_value = self.cof_value if cof_condition else 0.0
 
         if continuous_behavior:
-            # Add timestamp and store in shared state
-            state_data['last_updated'] = time.time()
-            state_data['cos_value'] = cos_value
-            state_data['cof_value'] = cof_value
-            self.shared_states[continuous_behavior] = state_data
-
             # Publish CoS for continuous calls
             self.publish_cos_state(continuous_behavior, cos_value)
             self.publish_cof_state(continuous_behavior, cof_value)
+
         # For service calls, just return the data without publishing
+        # Add timestamp and store in shared state
+        state_data['last_updated'] = time.time()
+        self.shared_states[continuous_behavior] = state_data
 
         return cos_condition, cof_condition, state_data
 

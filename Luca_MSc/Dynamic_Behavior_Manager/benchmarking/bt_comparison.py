@@ -4,14 +4,13 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 import py_trees
 import torch
-import csv
 import time
-import random
 
 from functools import partial
 from typing import Dict, Any
-from interactors import RobotInteractors
-from behavior_manager import run_behavior_manager
+from Luca_MSc.Dynamic_Behavior_Manager.behavior_manager import BehaviorManager
+from Luca_MSc.Dynamic_Behavior_Manager.initializer import Initializer
+from Luca_MSc.Dynamic_Behavior_Manager.DNF_interactors.robot_interactors import RobotInteractors
 
 class BehaviorTreeNode(py_trees.behaviour.Behaviour):
     """Base class for behavior tree nodes that use interactors"""
@@ -43,9 +42,8 @@ class FindObjectBT(BehaviorTreeNode):
         if not target:
             return py_trees.common.Status.FAILURE
 
-
-        # Simulate search (in real scenario, this would trigger camera scan)
-        result = self.interactors.perception.find_object(target)
+        # Simulate search
+        result = self.interactors.perception.find_object(continuous_behavior=self.name)
 
         if result[0]:
             self.write_state(f'{target}_location', result[2].clone())
@@ -74,7 +72,7 @@ class MoveToObjectBT(BehaviorTreeNode):
             return py_trees.common.Status.FAILURE
 
         current_pos = self.interactors.movement.get_position()
-        self.interactors.movement.move_to(target_pos, requesting_behavior=self.name)
+        self.interactors.movement.move_to(continuous_behavior=self.name)
 
         distance = torch.norm(target_pos[:2] - current_pos[:2]).item()
 
@@ -105,7 +103,7 @@ class CheckReachBT(BehaviorTreeNode):
             return py_trees.common.Status.FAILURE
 
         target_pos = self.read_state(f'{target}_location')
-        result = self.interactors.gripper.reach_check(target, target_pos, None, requesting_behavior=self.name)
+        result = self.interactors.gripper.reach_check(continuous_behavior=self.name)
 
         if result[0]:  # Reachable
             return py_trees.common.Status.SUCCESS
@@ -124,7 +122,7 @@ class ReachForObjectBT(BehaviorTreeNode):
             return py_trees.common.Status.FAILURE
 
         target_pos = self.read_state(f'{target}_location')
-        self.interactors.gripper.reach_for(target, target_pos, None, requesting_behavior=self.name)
+        self.interactors.gripper.reach_for(continuous_behavior=self.name)
 
         # Check if reached
         gripper_pos = self.interactors.gripper.get_position()
@@ -153,10 +151,13 @@ class GrabObjectBT(BehaviorTreeNode):
             # Grab object
             target_pos = self.read_state(f'{target}_location')
             target_orientation = self.read_state(f'{target}_orientation')
-            result = self.interactors.gripper.grab(target, target_pos, target_orientation, requesting_behavior=self.name)
+            result = self.interactors.gripper.grab(continuous_behavior=self.name)
 
             if result[0]:
                 self.phase = 'transport'
+                self.interactors.state.update_behavior_target('move_to',
+                                                              'transport_target',
+                                                              continuous_behavior=self.name)
                 return py_trees.common.Status.RUNNING
             elif result[1]:
                 return py_trees.common.Status.FAILURE
@@ -171,7 +172,7 @@ class GrabObjectBT(BehaviorTreeNode):
             drop_pos = self.interactors.perception.objects[drop_off]['location']
             current_pos = self.interactors.movement.get_position()
 
-            self.interactors.movement.move_to(drop_pos, requesting_behavior=self.name)
+            self.interactors.movement.move_to(continuous_behavior=self.name)
 
             # Check if reached (in plane)
             distance = torch.norm(drop_pos[:2] - current_pos[:2]).item()
@@ -223,6 +224,13 @@ class BehaviorTreeComparison:
             child=sequence,
             num_failures = self.max_retries
         )
+
+        # Provide interactors with target information
+        behaviors = ['find', 'move', 'check_reach', 'reach_for', 'grab']
+        behavior_manager = BehaviorManager(behaviors, self.behavior_args)
+        initializer = Initializer(behavior_manager)
+        behavior_chain = initializer.build_behavior_chain(behaviors)
+        self.interactors.state.initialize_from_behavior_chain(behavior_chain, self.behavior_args)
 
         self.tree = py_trees.trees.BehaviourTree(root=retry_sequence)
 

@@ -8,7 +8,9 @@ import torch
 import time
 
 from typing import Dict, Any
-from interactors import RobotInteractors
+from Luca_MSc.Dynamic_Behavior_Manager.behavior_manager import BehaviorManager
+from Luca_MSc.Dynamic_Behavior_Manager.initializer import Initializer
+from Luca_MSc.Dynamic_Behavior_Manager.DNF_interactors.robot_interactors import RobotInteractors
 
 # Ensuring silent SMACH logs
 def silent_log(msg):
@@ -32,7 +34,7 @@ class FindObjectSM(smach.State):
         if not target:
             return 'failure'
 
-        result = self.interactors.perception.find_object(target)
+        result = self.interactors.perception.find_object(continuous_behavior='FindObject')
 
         if result[0]:
             userdata.target_location = result[2].clone()
@@ -64,7 +66,7 @@ class MoveToObjectSM(smach.State):
             return 'failure'
 
         current_pos = self.interactors.movement.get_position()
-        result = self.interactors.movement.move_to(target_pos, requesting_behavior='MoveToObject')
+        result = self.interactors.movement.move_to(continuous_behavior='MoveToObject')
 
         distance = torch.norm(target_pos[:2] - current_pos[:2]).item()
 
@@ -76,7 +78,6 @@ class MoveToObjectSM(smach.State):
         if self.last_distance is not None:
             if abs(distance - self.last_distance) < 0.01:
                 self.stagnant_ticks += 1
-                print("Stagnant ticks:", self.stagnant_ticks)
                 if self.stagnant_ticks >= self.max_stagnant_ticks:
                     self.last_distance = None
                     self.stagnant_ticks = 0
@@ -104,7 +105,7 @@ class CheckReachSM(smach.State):
         target = self.behavior_args.get('target_object')
         target_pos = userdata.target_location._obj
 
-        result = self.interactors.gripper.reach_check(target, target_pos, None, requesting_behavior='CheckReach')
+        result = self.interactors.gripper.reach_check(continuous_behavior='CheckReach')
 
         if result[0]:
             return 'success'
@@ -127,7 +128,7 @@ class ReachForObjectSM(smach.State):
         target = self.behavior_args.get('target_object')
         target_pos = userdata.target_location._obj
 
-        self.interactors.gripper.reach_for(target, target_pos, None, requesting_behavior='ReachFor')
+        self.interactors.gripper.reach_for(continuous_behavior='ReachFor')
 
         gripper_pos = self.interactors.gripper.get_position()
         distance = torch.norm(target_pos - gripper_pos).item()
@@ -158,13 +159,13 @@ class GrabTransportSM(smach.State):
         target_orientation = userdata.target_orientation._obj
 
         if self.phase == 'grab':
-            result = self.interactors.gripper.grab(target,
-                                                   target_pos,
-                                                   target_orientation,
-                                                   requesting_behavior='GrabTransport')
+            result = self.interactors.gripper.grab(continuous_behavior='GrabTransport')
 
             if result[0]:
                 self.phase = 'transport'
+                self.interactors.state.update_behavior_target('move_to',
+                                                              'transport_target',
+                                                              'GrabTransport')
                 return 'preempted'
             elif result[1]:
                 self.phase = 'grab'
@@ -180,7 +181,7 @@ class GrabTransportSM(smach.State):
             drop_pos = self.interactors.perception.objects[drop_off]['location']
             current_pos = self.interactors.movement.get_position()
 
-            self.interactors.movement.move_to(drop_pos, requesting_behavior='GrabTransport')
+            self.interactors.movement.move_to(continuous_behavior='GrabTransport')
 
             distance = torch.norm(drop_pos[:2] - current_pos[:2]).item()
 
@@ -215,13 +216,20 @@ class StateMachineComparison:
 
     def build_state_machine(self):
         """Build the hierarchical state machine"""
-        sm = smach.StateMachine(outcomes=['SUCCESS', 'FAILURE'])
+        sm = smach.StateMachine(outcomes=['SUCCESS', 'FAILURE', 'TIMEOUT'])
         sm.userdata.target_location = None
         sm.userdata.target_orientation = None
 
+        # Provide interactors with target information
+        behaviors = ['find', 'move', 'check_reach', 'reach_for', 'grab']
+        behavior_manager = BehaviorManager(behaviors, self.behavior_args)
+        initializer = Initializer(behavior_manager)
+        behavior_chain = initializer.build_behavior_chain(behaviors)
+        self.interactors.state.initialize_from_behavior_chain(behavior_chain, self.behavior_args)
+
         with sm:
             # Create retry wrapper for robustness
-            sm_retry = smach.StateMachine(outcomes=['success', 'failure'])
+            sm_retry = smach.StateMachine(outcomes=['success', 'failure', 'timeout'])
             sm_retry.userdata.target_location = None
             sm_retry.userdata.target_orientation = None
 
@@ -260,7 +268,8 @@ class StateMachineComparison:
             smach.StateMachine.add('MAIN_SEQUENCE',
                                    sm_retry,
                                    transitions={'success': 'SUCCESS',
-                                                'failure': 'FAILURE'})
+                                                'failure': 'FAILURE',
+                                                'timeout': 'TIMEOUT'})
 
         self.sm = sm
 
@@ -308,7 +317,7 @@ class StateMachineComparison:
 
                     if step_counter >= max_steps:
                         sm._is_running = False
-                        return None
+                        return 'timeout'
 
                     result = original_methods[sm]()
 
@@ -337,7 +346,7 @@ class StateMachineComparison:
             attempt_steps = step_counter
             total_steps += attempt_steps
 
-            print(f"Attempt {attempt + 1} finished in {attempt_steps} steps and {time.time() - start_time:.2f} seconds with outcome: {outcome}")
+            #print(f"Attempt {attempt + 1} finished in {attempt_steps} steps and {time.time() - start_time:.2f} seconds with outcome: {outcome}")
 
             if outcome == 'SUCCESS':
                 return {
