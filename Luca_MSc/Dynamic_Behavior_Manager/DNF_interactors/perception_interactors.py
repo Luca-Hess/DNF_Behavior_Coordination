@@ -17,8 +17,9 @@ class PerceptionInteractor(BaseInteractor):
 
         # Simulation parameters for object finding behavior
         self.search_attempts = 0
+        self.noisy_environment = False        # Toggle for noisy environment simulation
         self.tracking_loss_probability = 0.1  # Probability to lose tracking on each
-        self.max_tracking_loss_duration = 5  # Max steps to lose tracking
+        self.max_tracking_loss_duration = 5   # Max steps to lose tracking
         self.in_tracking_loss = False
         self.tracking_loss_remaining = 0
 
@@ -54,17 +55,18 @@ class PerceptionInteractor(BaseInteractor):
             failure_reason = f"Inexistent: {name} not found in environment."
             return False, None, None, failure_reason
 
-        # Check if we should start a tracking loss period
-        if not self.in_tracking_loss and random.random() < self.tracking_loss_probability:
-            self.in_tracking_loss = True
-            self.tracking_loss_remaining = random.randint(1, self.max_tracking_loss_duration)
+        if self.noisy_environment:
+            # Check if we should start a tracking loss period
+            if not self.in_tracking_loss and random.random() < self.tracking_loss_probability:
+                self.in_tracking_loss = True
+                self.tracking_loss_remaining = random.randint(1, self.max_tracking_loss_duration)
 
-        # If we're in a tracking loss period
-        if self.in_tracking_loss:
-            self.tracking_loss_remaining -= 1
-            if self.tracking_loss_remaining <= 0:
-                self.in_tracking_loss = False
-            return False, None, None, None
+            # If we're in a tracking loss period
+            if self.in_tracking_loss:
+                self.tracking_loss_remaining -= 1
+                if self.tracking_loss_remaining <= 0:
+                    self.in_tracking_loss = False
+                return False, None, None, None
 
         # Normal detection logic
         if name in self.objects and self.search_attempts >= 3:

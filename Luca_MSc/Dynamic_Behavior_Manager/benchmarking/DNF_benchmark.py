@@ -21,13 +21,16 @@ def benchmark_completion_speed(num_runs: int = 10) -> Dict[str, Any]:
 
     bt_times = []
     bt_steps = []
-    bt_success = 0
+    bt_success = []
+    bt_successes = 0
     sm_times = []
     sm_steps = []
-    sm_success = 0
+    sm_success = []
+    sm_successes = 0
     dnf_times = []
     dnf_steps = []
-    dnf_success = 0
+    dnf_success = []
+    dnf_successes = 0
     dnf_theoretical_times = []
 
     print(f"\n=== Completion Speed Benchmark ({num_runs} runs) ===")
@@ -60,8 +63,9 @@ def benchmark_completion_speed(num_runs: int = 10) -> Dict[str, Any]:
         bt_result = bt_system.execute()
         bt_times.append(bt_result['time'])
         bt_steps.append(bt_result['steps'])
+        bt_success.append(bt_result['success'])
         if bt_result['success']:
-            bt_success += 1
+            bt_successes += 1
         print(f"  BT: {bt_result['steps']} steps, "
               f"{bt_result['time']:.3f}s, "
               f"{'Succeeded' if bt_result['success'] else 'Failed'}")
@@ -83,8 +87,9 @@ def benchmark_completion_speed(num_runs: int = 10) -> Dict[str, Any]:
         sm_result = sm_system.execute()
         sm_times.append(sm_result['time'])
         sm_steps.append(sm_result['steps'])
+        sm_success.append(sm_result['success'])
         if sm_result['success']:
-            sm_success += 1
+            sm_successes += 1
         print(f"  SM: {sm_result['steps']} steps, "
               f"{sm_result['time']:.3f}s, "
               f"{'Succeeded' if sm_result['success'] else 'Failed'}")
@@ -112,7 +117,7 @@ def benchmark_completion_speed(num_runs: int = 10) -> Dict[str, Any]:
                              max_steps=2000,
                              debug=False,
                              visualize_sim=False,
-                             visualize_logs=True,
+                             visualize_logs=False,
                              visualize_architecture=False,
                              timing=True,
                              verbose=False)
@@ -120,8 +125,9 @@ def benchmark_completion_speed(num_runs: int = 10) -> Dict[str, Any]:
         dnf_times.append(dnf_result['time'])
         dnf_steps.append(dnf_result['steps'])
         dnf_theoretical_times.append(dnf_result['steps'] * 0.005)
+        dnf_success.append(dnf_result['success'])
         if dnf_result['success']:
-            dnf_success += 1
+            dnf_successes += 1
 
         print(f"  DNF: {dnf_result['steps']} steps, "
               f"{dnf_result['time']:.3f}s, "
@@ -133,17 +139,20 @@ def benchmark_completion_speed(num_runs: int = 10) -> Dict[str, Any]:
         'bt_times': bt_times,
         'bt_steps': bt_steps,
         'bt_success': bt_success,
+        'bt_successes': bt_successes,
         'sm_avg_time': sum(sm_times) / len(sm_times),
         'sm_avg_steps': sum(sm_steps) / len(sm_steps),
         'sm_times': sm_times,
         'sm_steps': sm_steps,
         'sm_success': sm_success,
+        'sm_successes': sm_successes,
         'dnf_avg_time': sum(dnf_times) / len(dnf_times),
         'dnf_avg_steps': sum(dnf_steps) / len(dnf_steps),
         'dnf_times': dnf_times,
         'dnf_theoretical_times': dnf_theoretical_times,
         'dnf_steps': dnf_steps,
-        'dnf_success': dnf_success
+        'dnf_success': dnf_success,
+        'dnf_successes': dnf_successes
     }
 
 
@@ -161,13 +170,16 @@ def benchmark_robustness(perturbation_types: list, num_runs: int = 5) -> Dict[st
 
         bt_times = []
         bt_steps = []
-        bt_success = 0
+        bt_success = []
+        bt_successes = 0
         sm_times = []
         sm_steps = []
-        sm_success = 0
+        sm_success = []
+        sm_successes = 0
         dnf_times = []
         dnf_steps = []
-        dnf_success = 0
+        dnf_success = []
+        dnf_successes = 0
         perturbation_step = []
 
         for run in range(num_runs):
@@ -205,8 +217,9 @@ def benchmark_robustness(perturbation_types: list, num_runs: int = 5) -> Dict[st
 
             bt_times.append(bt_result['time'])
             bt_steps.append(bt_result['steps'])
+            bt_success.append(bt_result['success'])
             if bt_result['success']:
-                bt_success += 1
+                bt_successes += 1
 
             print(f"  Run {run + 1}: BT {bt_result['final_status']}")
 
@@ -228,8 +241,9 @@ def benchmark_robustness(perturbation_types: list, num_runs: int = 5) -> Dict[st
 
             sm_times.append(sm_result['time'])
             sm_steps.append(sm_result['steps'])
+            sm_success.append(sm_result['success'])
             if sm_result['success']:
-                sm_success += 1
+                sm_successes += 1
 
             print(f"  Run {run + 1}: SM {sm_result['final_status']}")
 
@@ -268,8 +282,9 @@ def benchmark_robustness(perturbation_types: list, num_runs: int = 5) -> Dict[st
 
             dnf_times.append(dnf_results['time'])
             dnf_steps.append(dnf_results['steps'])
+            dnf_success.append(dnf_results['success'])
             if dnf_results['success']:
-                dnf_success += 1
+                dnf_successes += 1
 
             print(f"  Run {run + 1}: DNF {dnf_results['final_status']}")
 
@@ -279,22 +294,25 @@ def benchmark_robustness(perturbation_types: list, num_runs: int = 5) -> Dict[st
         results[perturbation_name] = {
             'bt_avg_time': sum(bt_times) / len(bt_times),
             'bt_avg_steps': sum(bt_steps) / len(bt_steps),
-            'bt_success_rate': bt_success / num_runs,
+            'bt_success_rate': bt_successes / num_runs,
             'bt_times': bt_times,
             'bt_steps': bt_steps,
             'bt_success': bt_success,
+            'bt_successes': bt_successes,
             'sm_avg_time': sum(sm_times) / len(sm_times),
             'sm_avg_steps': sum(sm_steps) / len(sm_steps),
-            'sm_success_rate': sm_success / num_runs,
+            'sm_success_rate': sm_successes / num_runs,
             'sm_times': sm_times,
             'sm_steps': sm_steps,
             'sm_success': sm_success,
+            'sm_successes': sm_successes,
             'dnf_avg_time': sum(dnf_times) / len(dnf_times),
             'dnf_avg_steps': sum(dnf_steps) / len(dnf_steps),
-            'dnf_success_rate': dnf_success / num_runs,
+            'dnf_success_rate': dnf_successes / num_runs,
             'dnf_times': dnf_times,
             'dnf_steps': dnf_steps,
             'dnf_success': dnf_success,
+            'dnf_successes': dnf_successes,
             'perturbation_steps': perturbation_step
         }
 
@@ -326,7 +344,7 @@ def sensor_noise_perturbation(step, interactors, trigger_step):
     """Add noise to perception information of target object (not ground truth location)"""
     if trigger_step == step:
         for obj_name, obj_data in interactors.state.shared_states.items():
-            if obj_data.get('target_location', None) is not None:
+            if obj_data.get('target_location', None) is not None and obj_name is not None:
                 # Use random triggerstep as source of deterministic random values
                 eps_1 = ((trigger_step ** 2 / 123.456) - int(trigger_step ** 2 / 123.456)) * 4 - 2
                 eps_2 = ((trigger_step ** 3 / 789.123) - int(trigger_step ** 3 / 789.123)) * 4 - 2
@@ -360,59 +378,65 @@ if __name__ == "__main__":
         # Write speed results
         if 'speed_results' in locals():
             writer.writerow(['Speed Benchmark',
-                             'BT Avg Time (s)', 'BT Avg Steps',
-                             'SM Avg Time (s)', 'SM Avg Steps',
-                             'DNF Avg Time (s)', 'DNF Avg Steps'])
+                             'BT Avg Time (s)', 'BT Avg Steps', 'BT Successes',
+                             'SM Avg Time (s)', 'SM Avg Steps', 'SM Successes',
+                             'DNF Avg Time (s)', 'DNF Avg Steps', 'DNF Successes'])
             writer.writerow(['Completion Speed',
                              f"{speed_results['bt_avg_time']:.3f}",
                              speed_results['bt_avg_steps'],
+                             speed_results['bt_successes'],
                              f"{speed_results['sm_avg_time']:.3f}",
                              speed_results['sm_avg_steps'],
+                             speed_results['sm_successes'],
                              f"{speed_results['dnf_avg_time']:.3f}",
-                             speed_results['dnf_avg_steps']])
+                             speed_results['dnf_avg_steps'],
+                             speed_results['dnf_successes']])
 
             writer.writerow(['Individual Run Times and Steps'])
             writer.writerow(['Run',
-                             'BT Time (s)', 'BT Steps', 'BT Successes',
-                             'SM Time (s)', 'SM Steps', 'SM Successes',
-                             'DNF Time (s)', 'DNF Theoretical Time (s)', 'DNF Steps', 'DNF Successes'])
+                             'BT Time (s)', 'BT Steps', 'BT Success',
+                             'SM Time (s)', 'SM Steps', 'SM Success',
+                             'DNF Time (s)', 'DNF Theoretical Time (s)', 'DNF Steps', 'DNF Success'])
             for i in range(len(speed_results['bt_times'])):
                 writer.writerow([i + 1,
                                  f"{speed_results['bt_times'][i]:.3f}",
                                  speed_results['bt_steps'][i],
-                                 1 if i < speed_results['bt_success'] else 0,
+                                 speed_results['bt_success'][i],
                                  f"{speed_results['sm_times'][i]:.3f}",
                                  speed_results['sm_steps'][i],
-                                 1 if i < speed_results['sm_success'] else 0,
+                                 speed_results['sm_success'][i],
                                  f"{speed_results['dnf_times'][i]:.3f}",
                                  f"{speed_results['dnf_theoretical_times'][i]:.3f}",
                                  speed_results['dnf_steps'][i],
-                                 1 if i < speed_results['dnf_success'] else 0])
+                                 speed_results['dnf_success'][i]])
 
         # Write robustness results
         if 'robustness_results' in locals():
             writer.writerow([])
             writer.writerow(['Perturbation',
-                             'BT Avg Time (s)', 'BT Avg Steps', 'BT Success Rate',
-                             'SM Avg Time (s)', 'SM Avg Steps', 'SM Success Rate',
-                             'DNF Avg Time (s)', 'DNF Avg Steps', 'DNF Success Rate'])
+                             'BT Avg Time (s)', 'BT Avg Steps', 'BT Success Rate', 'BT Successes',
+                             'SM Avg Time (s)', 'SM Avg Steps', 'SM Success Rate', 'SM Successes',
+                             'DNF Avg Time (s)', 'DNF Avg Steps', 'DNF Success Rate', 'DNF Successes'])
             for perturbation_name, result in robustness_results.items():
                 writer.writerow([perturbation_name,
                                     f"{result['bt_avg_time']:.2f}",
                                     f"{result['bt_avg_steps']}",
                                     f"{result['bt_success_rate']:.2f}",
+                                    f"{result['bt_successes']}",
                                     f"{result['sm_avg_time']:.2f}",
                                     f"{result['sm_avg_steps']}",
                                     f"{result['sm_success_rate']:.2f}",
+                                    f"{result['sm_successes']}",
                                     f"{result['dnf_avg_time']:.2f}",
                                     f"{result['dnf_avg_steps']:.2f}",
-                                    f"{result['dnf_success_rate']:.2f}"])
+                                    f"{result['dnf_success_rate']:.2f}",
+                                    f"{result['dnf_successes']}"])
             writer.writerow([])
             writer.writerow(['Individual Run Times and Steps'])
-            writer.writerow(['Perturbation', 'Run', 'Successes',
-                             'BT Time (s)', 'BT Steps', 'BT Successes',
-                             'SM Time (s)', 'SM Steps', 'SM Successes',
-                             'DNF Time (s)', 'DNF Steps', 'DNF Successes',
+            writer.writerow(['Perturbation', 'Run',
+                             'BT Time (s)', 'BT Steps', 'BT Success',
+                             'SM Time (s)', 'SM Steps', 'SM Success',
+                             'DNF Time (s)', 'DNF Steps', 'DNF Success',
                              'Perturbation Step'])
 
             for perturbation_name, result in robustness_results.items():
@@ -420,14 +444,13 @@ if __name__ == "__main__":
                 for i in range(num_runs):
                     writer.writerow([perturbation_name,
                                      i + 1,
-                                     1 if i < result['bt_success'] else 0,
                                      f"{result['bt_times'][i]:.2f}",
                                      result['bt_steps'][i],
-                                     1 if i < result['bt_success'] else 0,
+                                     result['bt_success'][i],
                                      f"{result['sm_times'][i]:.2f}",
                                      result['sm_steps'][i],
-                                     1 if i < result['sm_success'] else 0,
+                                     result['sm_success'][i],
                                      f"{result['dnf_times'][i]:.2f}",
                                      result['dnf_steps'][i],
-                                     1 if i < result['dnf_success'] else 0,
+                                     result['dnf_success'][i],
                                      result['perturbation_steps'][i]])
