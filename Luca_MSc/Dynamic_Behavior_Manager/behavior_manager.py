@@ -28,13 +28,24 @@ import time
 
 """
 Important Notice: 
-This code is conceptual work and currently lacks the higher level infrastructure that would use this behavior manager in a complete system.
+This code is conceptual work and currently lacks the higher level infrastructure 
+that would use this behavior manager in a complete system.
 The interactor system for device interactions works, but are also simple placeholders.
 """
 
 
 class BehaviorManager():
     def __init__(self, behaviors=list, args=dict(), debug=False, weights=None):
+        """
+        Initialize the Behavior Manager with specified behaviors and arguments.
+        Parameters:
+        - behaviors: List of behavior names to execute in sequence.
+        - args: Dictionary of arguments required by behaviors.
+                Behaviors will validate args they require are present.
+        - debug: Enable debug printing.
+        - weights: Custom DNF weights for connections and dynamics (optional).
+        """
+
         self.behavior_args = args
         self.debug = debug
 
@@ -256,6 +267,27 @@ def run_behavior_manager(behaviors,
                          verbose=False,
                          perturbation_simulation=None):
 
+    """
+    Run the behavior manager with specified behaviors and arguments.
+    Parameters:
+    - behaviors: List of behavior names to execute in sequence.
+    - behavior_args: Dictionary of arguments required by behaviors.
+    - interactors: Interactor instances for device/world interaction.
+    - external_input: External input to system intention node.
+    - max_steps: Maximum number of execution steps.
+    - debug: Enable debug printing.
+    - visualize_sim: Enable 3D simulation visualization.
+    - visualize_architecture: Enable behavior architecture visualization.
+    - visualize_logs: Enable behavior logs visualization.
+    - timing: Measure execution time.
+    - verbose: Enable verbose output.
+    - perturbation_simulation: Optional function to simulate perturbations during execution.
+                               Was used for benchmarking purposes.
+    Returns:
+    - state: Final state of the behavior manager after execution.
+    - result: Summary of execution results including success status, steps taken, and time elapsed.
+    """
+
     # Create behavior manager
     behavior_seq = BehaviorManager(
         behaviors=behaviors,
@@ -264,13 +296,18 @@ def run_behavior_manager(behaviors,
         weights=dnf_weights
     )
 
-    #print('All Fields in Behavior Manager:', behavior_seq.runtime_weights.list_all_fields())
+    # These are examples of how to modify runtime weights before execution
+
+    ## Receive information about current configuration
+    # print('All Fields in Behavior Manager:', behavior_seq.runtime_weights.list_all_fields())
+    # behavior_seq.runtime_weights.get_field_params('move_CoS')
+
+    ## Disable specific connections or modify weights
     # behavior_seq.runtime_weights.disable_connection('check_reach_precond_to_reach_for_intention')
     # behavior_seq.runtime_weights.set_connection_weight('move_precond_to_check_reach_intention', -0.1)
     # behavior_seq.runtime_weights.set_field_param('move_CoS', 'self_connection_w0', 50.0)
-    # behavior_seq.runtime_weights.get_field_params('move_CoS')
 
-    ## Get RL-ready parameters
+    ## Get Reinforcement Learning-ready parameters
     # params, metadata = behavior_seq.runtime_weights.get_trainable_params()
     #
     # print("Trainable Parameters Metadata:")
@@ -287,7 +324,6 @@ def run_behavior_manager(behaviors,
     ## Save optimized configuration
     #behavior_seq.runtime_weights.save('optimized_weights.json')
 
-
     # Log all activations and activities for plotting
     if visualize_logs or visualize_architecture:
         log = initalize_log(behavior_seq.behavior_chain)
@@ -302,7 +338,7 @@ def run_behavior_manager(behaviors,
     if not visualize_sim and not visualize_logs and not visualize_architecture:
         track_states = False
 
-    #
+    # Setup subscriptions for runtime management
     behavior_seq.runtime_manager.setup_subscriptions(interactors)
 
     if verbose:
@@ -393,7 +429,7 @@ def run_behavior_manager(behaviors,
 # Example usage
 if __name__ == "__main__":
     behaviors = ['find', 'move', 'check_reach', 'reach_for', 'grab_transport']
-    #behaviors = ['find', 'move_and_reach', 'grab_transport']
+    behaviors = ['find', 'move_and_reach', 'grab_transport']
     behavior_args = {
         'target_object': 'cup',
         'drop_off_target': 'transport_target'
@@ -420,17 +456,22 @@ if __name__ == "__main__":
                                            location=torch.tensor([8.0, 12.0, 1.5]),
                                            angle=torch.tensor([0.0, -1.0, 0.0]))
 
-    state, results = run_behavior_manager(behaviors=behaviors,
-                         behavior_args=behavior_args,
-                         interactors=interactors,
-                         external_input=external_input,
-                         max_steps=2000,
-                         debug=False,
-                         visualize_sim=False,
-                         visualize_logs=True,
-                         visualize_architecture=False,
-                         timing=True,
-                         verbose=False)
+
+    state, results = run_behavior_manager(
+        behaviors=behaviors,                # Behavior sequence to execute
+        behavior_args=behavior_args,        # Arguments for behaviors
+        interactors=interactors,            # Interactors for device/world interaction
+        external_input=external_input,      # External input to system intention node - simulates higher-level planner
+        max_steps=2000,                     # Maximum steps to execute
+        debug=False,                        # Enable debug printing
+        visualize_sim=False,                # Visualize robot simulation - 3D animation
+        visualize_logs=True,                # Visualize behavior logs - activation/activity plots
+        visualize_architecture=False,       # Visualize behavior architecture - fixed chain animation
+        timing=True,                        # Measure execution time
+        verbose=False                       # Enable verbose output
+    )
+
+
 
     print(f"Behavior Manager Results: {results}")
 

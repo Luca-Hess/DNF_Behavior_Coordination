@@ -326,6 +326,15 @@ class Initializer:
                     if arg not in behavior_args:
                         missing_args.append(f"{behavior_name} requires '{arg}'")
 
+            # Check parallel behaviors
+            if behavior_name in behavior_config.PARALLEL_BEHAVIOR_CONFIG:
+                parallel_behaviors = behavior_config.PARALLEL_BEHAVIOR_CONFIG[behavior_name]['parallel_behaviors']
+                for parallel_behavior in parallel_behaviors:
+                    required = behavior_config.ELEMENTARY_BEHAVIOR_CONFIG[parallel_behavior].get('required_args', [])
+                    for arg in required:
+                        if arg not in behavior_args:
+                            missing_args.append(f"{parallel_behavior} (parallel behavior) requires '{arg}'")
+
         if missing_args:
             error_msg = "Missing required arguments:\n" + "\n".join(f"  - {msg}" for msg in missing_args)
             return False, error_msg

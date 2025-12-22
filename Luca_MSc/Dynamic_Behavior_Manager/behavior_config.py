@@ -59,13 +59,6 @@ ACTION_BEHAVIOR_CONFIG = {
                 'move_to',
                 action['new_movement_target'](interactors, args),
             )
-    },
-    'announce': {
-            'interactor_type': 'state',
-            'service_method': 'announce_message',
-            'service_args_func': lambda interactors, args, action: (
-                action['message'](interactors, args),
-           )
     }
 }
 

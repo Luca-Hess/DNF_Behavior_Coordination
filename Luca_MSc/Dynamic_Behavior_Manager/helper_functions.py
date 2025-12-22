@@ -637,7 +637,7 @@ def animate_fixed_chain(log, behavior_chain, clean=True):
                      fontsize=16, weight='bold')
 
     # Create animation
-    ani = animation.FuncAnimation(fig, update, frames=len(log['steps']), interval=200, repeat=True, blit=False)
+    ani = animation.FuncAnimation(fig, update, frames=len(log['steps']), interval=5, repeat=True, blit=False)
 
     # Show with explicit draw
     plt.draw()
