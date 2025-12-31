@@ -1,0 +1,71 @@
+Speed Benchmark,BT Avg Time (s),BT Avg Steps,BT Successes,SM Avg Time (s),SM Avg Steps,SM Successes,DNF Avg Time (s),DNF Avg Steps,DNF Successes
+Completion Speed,7.976,1329.0,20,8.621,1334.0,20,8.711,1916.0,20
+Individual Run Times and Steps
+Run,BT Time (s),BT Steps,BT Success,SM Time (s),SM Steps,SM Success,DNF Time (s),DNF Theoretical Time (s),DNF Steps,DNF Success
+1,7.964,1329,True,8.718,1334,True,8.701,9.580,1916,True
+2,7.941,1329,True,8.631,1334,True,8.726,9.580,1916,True
+3,8.007,1329,True,8.523,1334,True,8.666,9.580,1916,True
+4,7.955,1329,True,8.679,1334,True,8.811,9.580,1916,True
+5,7.873,1329,True,8.539,1334,True,8.765,9.580,1916,True
+6,8.060,1329,True,8.632,1334,True,8.590,9.580,1916,True
+7,7.929,1329,True,8.559,1334,True,8.907,9.580,1916,True
+8,7.962,1329,True,8.600,1334,True,8.614,9.580,1916,True
+9,8.015,1329,True,8.636,1334,True,8.846,9.580,1916,True
+10,7.940,1329,True,8.663,1334,True,8.640,9.580,1916,True
+11,7.969,1329,True,8.732,1334,True,8.732,9.580,1916,True
+12,7.972,1329,True,8.529,1334,True,8.794,9.580,1916,True
+13,7.825,1329,True,8.687,1334,True,8.623,9.580,1916,True
+14,7.965,1329,True,8.453,1334,True,8.764,9.580,1916,True
+15,8.095,1329,True,8.738,1334,True,8.632,9.580,1916,True
+16,7.966,1329,True,8.577,1334,True,8.643,9.580,1916,True
+17,8.023,1329,True,8.605,1334,True,8.707,9.580,1916,True
+18,8.003,1329,True,8.562,1334,True,8.733,9.580,1916,True
+19,8.027,1329,True,8.677,1334,True,8.652,9.580,1916,True
+20,8.029,1329,True,8.686,1334,True,8.677,9.580,1916,True
+
+Perturbation,BT Avg Time (s),BT Avg Steps,BT Success Rate,BT Successes,SM Avg Time (s),SM Avg Steps,SM Success Rate,SM Successes,DNF Avg Time (s),DNF Avg Steps,DNF Success Rate,DNF Successes
+Object Displacement,9.06,1513.55,0.70,14,9.99,1550.6,0.70,14,8.63,1887.55,0.75,15
+Sensor Noise,9.56,1570.55,0.80,16,10.96,1674.7,0.90,18,8.30,1660.20,0.55,11
+
+Individual Run Times and Steps
+Perturbation,Run,BT Time (s),BT Steps,BT Success,SM Time (s),SM Steps,SM Success,DNF Time (s),DNF Steps,DNF Success,Perturbation Step
+Object Displacement,1,7.98,1343,True,8.59,1358,True,8.92,1946,True,854
+Object Displacement,2,7.92,1330,True,8.04,1245,False,8.84,1872,True,314
+Object Displacement,3,7.90,1337,True,9.69,1521,True,8.97,1905,True,225
+Object Displacement,4,8.57,1430,False,8.96,1401,True,8.98,1916,True,959
+Object Displacement,5,7.32,1225,True,8.78,1341,True,8.16,1781,True,481
+Object Displacement,6,7.73,1287,True,8.63,1346,True,8.31,1820,True,450
+Object Displacement,7,7.79,1297,True,8.75,1370,True,8.65,1879,True,428
+Object Displacement,8,7.91,1306,True,8.43,1283,False,8.42,1842,True,342
+Object Displacement,9,8.55,1430,False,10.16,1569,True,5.08,1050,False,954
+Object Displacement,10,7.53,1254,True,7.78,1192,False,8.13,1789,True,304
+Object Displacement,11,8.49,1430,False,9.57,1501,True,9.36,2099,True,892
+Object Displacement,12,8.62,1430,False,10.18,1564,True,4.71,1054,False,958
+Object Displacement,13,8.61,1430,False,9.50,1476,True,18.09,4000,False,1113
+Object Displacement,14,9.48,1562,True,10.19,1567,True,7.15,1569,False,758
+Object Displacement,15,9.06,1514,True,8.22,1281,False,9.19,2048,True,289
+Object Displacement,16,9.26,1534,True,10.00,1539,True,6.95,1516,False,804
+Object Displacement,17,23.61,4000,False,30.16,4732,True,8.30,1880,True,632
+Object Displacement,18,7.52,1258,True,6.46,1014,False,8.21,1840,True,232
+Object Displacement,19,8.08,1336,True,9.02,1392,True,8.39,1872,True,230
+Object Displacement,20,9.28,1538,True,8.72,1320,False,9.74,2073,True,295
+Sensor Noise,1,8.44,1388,True,9.09,1395,True,5.86,1223,False,423
+Sensor Noise,2,8.24,1355,True,9.00,1362,True,9.11,1928,True,438
+Sensor Noise,3,8.68,1422,True,9.29,1432,True,7.48,1547,False,717
+Sensor Noise,4,8.12,1329,True,9.11,1389,True,9.56,1989,True,816
+Sensor Noise,5,8.50,1381,True,9.19,1388,True,5.75,1192,False,227
+Sensor Noise,6,9.03,1486,True,9.70,1491,True,7.69,1488,False,774
+Sensor Noise,7,3.58,592,False,3.88,600,False,3.63,742,False,403
+Sensor Noise,8,8.19,1329,True,8.80,1334,True,11.27,2244,True,933
+Sensor Noise,9,8.18,1329,True,8.82,1334,True,9.64,1983,True,865
+Sensor Noise,10,8.06,1329,True,8.75,1334,True,12.16,2399,True,918
+Sensor Noise,11,5.31,872,False,5.68,878,False,4.04,854,False,758
+Sensor Noise,12,24.00,4000,False,30.70,4739,True,5.82,1165,False,629
+Sensor Noise,13,7.87,1282,True,8.58,1289,True,8.24,1721,True,425
+Sensor Noise,14,24.04,4000,False,32.28,4989,True,6.35,1256,False,659
+Sensor Noise,15,8.92,1446,True,9.55,1456,True,10.97,2259,True,803
+Sensor Noise,16,8.24,1353,True,8.85,1360,True,9.09,1866,True,484
+Sensor Noise,17,8.16,1329,True,8.78,1334,True,10.03,1916,True,1028
+Sensor Noise,18,8.04,1329,True,8.81,1334,True,10.76,1916,True,1090
+Sensor Noise,19,9.33,1531,True,11.41,1722,True,7.23,1289,False,206
+Sensor Noise,20,8.20,1329,True,8.91,1334,True,11.33,2227,True,977
