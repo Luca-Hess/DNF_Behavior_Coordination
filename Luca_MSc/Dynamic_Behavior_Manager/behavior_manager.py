@@ -424,10 +424,15 @@ def run_behavior_manager(behaviors,
 
     return state, result
 
-
-
-# Example usage
-if __name__ == "__main__":
+def execute_simulation():
+    """
+    Example function to execute a behavior manager simulation for a robot
+    tasked with finding, reaching for, grabbing, and transporting an object.
+    """
+    # Two example behavior sequences for testing - comment out one or the other
+    # The first one is a linear sequence of behaviors
+    # The second one uses a parallel behavior to speed up execution
+    # 1671 steps vs 1621 steps
     behaviors = ['find', 'move', 'check_reach', 'reach_for', 'grab_transport']
     behaviors = ['find', 'move_and_reach', 'grab_transport']
     behavior_args = {
@@ -452,10 +457,6 @@ if __name__ == "__main__":
                                            location=torch.tensor([5.0, 0.0, 1.0]),
                                            angle=torch.tensor([0.0, 0.0, 0.0]))
 
-    interactors.perception.register_object(name="bottle",
-                                           location=torch.tensor([8.0, 12.0, 1.5]),
-                                           angle=torch.tensor([0.0, -1.0, 0.0]))
-
 
     state, results = run_behavior_manager(
         behaviors=behaviors,                # Behavior sequence to execute
@@ -471,8 +472,10 @@ if __name__ == "__main__":
         verbose=False                       # Enable verbose output
     )
 
-
-
     print(f"Behavior Manager Results: {results}")
+
+# Example usage
+if __name__ == "__main__":
+    execute_simulation()
 
 

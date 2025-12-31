@@ -18,7 +18,7 @@ class PerceptionInteractor(BaseInteractor):
         # Simulation parameters for object finding behavior
         self.search_attempts = 0
         self.noisy_environment = False        # Toggle for noisy environment simulation
-        self.tracking_loss_probability = 0.1  # Probability to lose tracking on each
+        self.tracking_loss_probability = 0.25  # Probability to lose tracking on each
         self.max_tracking_loss_duration = 5   # Max steps to lose tracking
         self.in_tracking_loss = False
         self.tracking_loss_remaining = 0

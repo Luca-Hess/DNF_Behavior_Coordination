@@ -8,7 +8,8 @@ class GripperInteractor(BaseInteractor):
 
     def __init__(
             self,
-            max_speed=0.01,  # max speed per step
+            max_speed=0.03,  # max speed per step,
+                             # increased from 0.01 to 0.03 to benefit from parallelization
             gain=1.0,
             stop_threshold=0.01,  # distance to consider "arrived"
             orient_threshold=0.01,  # radians to consider "oriented"

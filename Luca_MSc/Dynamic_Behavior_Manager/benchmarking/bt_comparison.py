@@ -6,7 +6,6 @@ import py_trees
 import torch
 import time
 
-from functools import partial
 from typing import Dict, Any
 from Luca_MSc.Dynamic_Behavior_Manager.behavior_manager import BehaviorManager
 from Luca_MSc.Dynamic_Behavior_Manager.initializer import Initializer
