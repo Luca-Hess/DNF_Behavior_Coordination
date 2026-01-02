@@ -13,6 +13,8 @@ Contains DNF Behavior Manager Code in
 
 Luca_MSc/DNF_Behavior_Manager
 
+The main executable is the behavior_manager.py file.
+
 Other code is deprecated and uploaded only for completeness of work done. 
 
 2. **Stats_Analysis**
