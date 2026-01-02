@@ -57,14 +57,6 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 uv sync
 ```
 
-This will:
-
-- Create a virtual environment
-
-- Install all dependencies from pyproject.toml
-
-- Reproduce exact versions from uv.lock
-
 ### Activate the environment
 
 ```bash
