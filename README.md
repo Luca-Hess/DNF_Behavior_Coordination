@@ -69,7 +69,7 @@ source .venv/bin/activate   # Linux/macOS
 ## **Running the Behavior Manager**
 
 ```bash
-cd Luca_MSc/DNF_Behavior_Manager
+cd Luca_MSc/Dynamic_Behavior_Manager
 python behavior_manager.py
 ```
 
