@@ -9,10 +9,10 @@ Cloned from: **github.com:neuromorphic-zhaw/DNF_torch.git**
 
 ### **1. `Luca_MSc/`**
 
-#### **DNF_Behavior_Manager**
-**Path:** `Luca_MSc/DNF_Behavior_Manager`
+#### **Dynamic_Behavior_Manager**
+**Path:** `Luca_MSc/Dynamic_Behavior_Manager`
 
-- Contains the **DNF Behavior Manager** implementation.  
+- Contains the **Dynamic Behavior Manager** implementation.  
 - Main executable: **`behavior_manager.py`**  
 - Additional scripts at `Luca_MSc/old` are **deprecated** and included only for completeness and documentation of the development process.
 
