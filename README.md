@@ -68,8 +68,23 @@ source .venv/bin/activate   # Linux/macOS
 ## **Running the Behavior Manager**
 
 ```bash
-python Luca_MSc/Dynamic_Behavior_Manager/behavior_manager.py
+python3 Luca_MSc/Dynamic_Behavior_Manager/behavior_manager.py
 ```
+
+#### Potential Issues:
+
+On some systems, running the behavior manager with visualizations might fail due to issues with matplotlib interactivity. If this should be the case, change 
+
+```text
+plt.show()
+```
+to
+
+```text
+plt.savefig(<'your figure title'>)
+```
+
+in the relevant files (likely helper_functions.py).
 
 ---
 
