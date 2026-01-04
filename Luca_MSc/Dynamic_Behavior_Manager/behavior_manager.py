@@ -1,8 +1,3 @@
-# import sys
-# import os
-# # Add DNF_torch package root
-# sys.path.append(os.path.expanduser('~/nc_ws/DNF_torch'))
-
 # Python package imports
 import torch
 import matplotlib

@@ -12,7 +12,7 @@ setup(
     author="Caterina Caccavella",
     author_email="cacc@zhaw.ch",
     python_requires=">=3.10",
-    packages=find_packages(exclude=["tests", "examples"]),
+    packages=find_packages(exclude=["tests", "examples", "Stats_Analysis"]),
     install_requires=[
         "torch==2.6.0",
         "torchvision==0.21.0",
@@ -23,6 +23,9 @@ setup(
         "pygame==2.6.1",
         "pygame-ce==2.5.5",
         "pygame_gui==0.6.14",
+        "py-trees>=2.4.0",
+        "pyyaml>=6.0.3",
+        "standalone-smach>=0.0.9",
     ],
     extras_require={
         "dev": ["pytest>=7.4", "pytest-cov", "ruff", "mypy", "build", "twine"],
