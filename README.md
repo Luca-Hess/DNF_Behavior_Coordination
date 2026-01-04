@@ -71,6 +71,12 @@ source .venv/bin/activate   # Linux/macOS
 python3 Luca_MSc/Dynamic_Behavior_Manager/behavior_manager.py
 ```
 
+### **Running the Benchmarks**
+
+```bash
+python3 Luca_MSc/Dynamic_Behavior_Manager/benchmarking/DNF_benchmark.py
+```
+
 #### Potential Issues:
 
 On some systems, running the behavior manager with visualizations might fail due to issues with matplotlib interactivity. If this should be the case, change 
