@@ -1,14 +1,6 @@
 import torch
 import torch.nn as nn
 
-import sys
-import os
-# Add DNF_torch package root
-sys.path.append(os.path.expanduser('~/nc_ws/DNF_torch'))
-
-# Add Luca_MSc subfolder for local scripts
-sys.path.append(os.path.join(os.path.expanduser('~/nc_ws/DNF_torch'), 'Luca_MSc/latching CoS experiment'))
-
 from DNF_torch.field import Field
 
 class SanityCheckBehavior(nn.Module):

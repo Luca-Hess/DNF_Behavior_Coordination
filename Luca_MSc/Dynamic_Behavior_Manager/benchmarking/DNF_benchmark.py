@@ -1,7 +1,3 @@
-import sys
-import os
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-
 import torch
 import csv
 import random
@@ -9,8 +5,8 @@ import random
 from functools import partial
 from typing import Dict, Any
 
-from bt_comparison import BehaviorTreeComparison
-from sm_comparison import StateMachineComparison
+from Luca_MSc.Dynamic_Behavior_Manager.benchmarking.bt_comparison import BehaviorTreeComparison
+from Luca_MSc.Dynamic_Behavior_Manager.benchmarking.sm_comparison import StateMachineComparison
 
 from Luca_MSc.Dynamic_Behavior_Manager.DNF_interactors.robot_interactors import RobotInteractors
 from Luca_MSc.Dynamic_Behavior_Manager.behavior_manager import run_behavior_manager

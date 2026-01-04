@@ -1,6 +1,5 @@
-from check_behavior import SanityCheckBehavior
-
-from dnf_weights import dnf_weights
+from Luca_MSc.Dynamic_Behavior_Manager.check_behavior import SanityCheckBehavior
+from Luca_MSc.Dynamic_Behavior_Manager.dnf_weights import dnf_weights
 
 class SanityCheckInterface(SanityCheckBehavior):
     """

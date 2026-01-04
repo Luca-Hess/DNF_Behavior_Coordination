@@ -1,7 +1,6 @@
 
 from Luca_MSc.Dynamic_Behavior_Manager.DNF_interactors.parallel_interactors import ParallelInteractor
-
-import behavior_config
+from Luca_MSc.Dynamic_Behavior_Manager import behavior_config
 
 class RuntimeManagement:
     def __init__(self, behavior_manager):

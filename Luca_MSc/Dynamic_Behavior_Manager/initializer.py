@@ -2,10 +2,10 @@ import torch
 
 from DNF_torch.field import Field
 
-from elementary_behavior_interface import ElementaryBehaviorInterface
-from sanity_check_interface import SanityCheckInterface
+from Luca_MSc.Dynamic_Behavior_Manager.elementary_behavior_interface import ElementaryBehaviorInterface
+from Luca_MSc.Dynamic_Behavior_Manager.sanity_check_interface import SanityCheckInterface
 
-import behavior_config
+from Luca_MSc.Dynamic_Behavior_Manager import behavior_config
 
 class Initializer:
     def __init__(self, behavior_manager):

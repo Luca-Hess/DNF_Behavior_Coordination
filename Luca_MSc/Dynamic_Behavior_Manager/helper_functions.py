@@ -2,9 +2,6 @@ import torch
 import numpy as np
 import matplotlib.pyplot as plt
 
-from DNF_torch.field import Field
-
-
 
 
 ### Find Grab Behavior Simulation ###

@@ -5,19 +5,19 @@ import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
 
 
-from SimulationVisualizer import RobotSimulationVisualizer
+from Luca_MSc.Dynamic_Behavior_Manager.SimulationVisualizer import RobotSimulationVisualizer
 from Luca_MSc.Dynamic_Behavior_Manager.DNF_interactors.robot_interactors import RobotInteractors
 
 
-from helper_functions import initalize_log, update_log, plot_logs, animate_fixed_chain
+from Luca_MSc.Dynamic_Behavior_Manager.helper_functions import initalize_log, update_log, plot_logs, animate_fixed_chain
 
-from dnf_weights import dnf_weights
+from Luca_MSc.Dynamic_Behavior_Manager.dnf_weights import dnf_weights
 
-from runtime_weights import RuntimeWeightManager
-from initializer import Initializer
-from connection_builder import ConnectionBuilder
-from runtime_management import RuntimeManagement
-from state_collector import StateCollector
+from Luca_MSc.Dynamic_Behavior_Manager.runtime_weights import RuntimeWeightManager
+from Luca_MSc.Dynamic_Behavior_Manager.initializer import Initializer
+from Luca_MSc.Dynamic_Behavior_Manager.connection_builder import ConnectionBuilder
+from Luca_MSc.Dynamic_Behavior_Manager.runtime_management import RuntimeManagement
+from Luca_MSc.Dynamic_Behavior_Manager.state_collector import StateCollector
 
 import time
 
